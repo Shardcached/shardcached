@@ -1,1 +1,13 @@
 shardcached
+*~
+*.swp
+*.swo
+*.swn
+*.o
+*.a
+*.out
+*.so
+*.dylib
+test/*_test
+.DS_Store
+*.dSYM
