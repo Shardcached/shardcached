@@ -146,7 +146,7 @@ static int shardcached_request_handler(struct mg_connection *conn) {
         int clen = 0;
         const char *clen_hdr = mg_get_header(conn, "Content-Length");
         if (clen_hdr) {
-            clen = strtol(clen_hdr + 15, NULL, 10); 
+            clen = strtol(clen_hdr, NULL, 10); 
         }
         
         if (!clen) {
