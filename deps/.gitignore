@@ -1,0 +1,7 @@
+.incs
+.libs
+libhl
+libchash
+libiomux
+siphash-c
+

@@ -1,10 +1,10 @@
 UNAME := $(shell uname)
 
-LDFLAGS += $(LIBSHARDCACHE_DIR)/libshardcache.a \
-	   $(LIBSHARDCACHE_DIR)/deps/.libs/libiomux.a \
-	   $(LIBSHARDCACHE_DIR)/deps/.libs/libhl.a \
-	   $(LIBSHARDCACHE_DIR)/deps/.libs/libchash.a \
-	   $(LIBSHARDCACHE_DIR)/deps/.libs/libsiphash.a \
+LDFLAGS += deps/.libs/libshardcache.a \
+	   deps/.libs/libiomux.a \
+	   deps/.libs/libhl.a \
+	   deps/.libs/libchash.a \
+	   deps/.libs/libsiphash.a \
 	   -L. 
 
 ifeq ($(UNAME), Linux)
@@ -14,14 +14,19 @@ LDFLAGS +=
 CFLAGS += -Wno-deprecated-declarations
 endif
 
-ifeq ("$(LIBSHARDCACHE_DIR)", "")
-    LIBSHARDCACHE_DIR=$(shell pwd)/..
-endif
-
 #CC = gcc
 TARGETS = $(patsubst %.c, %.o, $(wildcard src/*.c))
 
-all: $(LIBSHARDCACHE_DIR)/libshardcache.a objects shardcached
+all: build_deps objects shardcached
+
+build_deps:
+	@make -eC deps all
+
+update_deps:
+	@make -C deps update
+
+purge_deps:
+	@make -C deps purge
 
 $(LIBSHARDCACHE_DIR)/libshardcache.a:
 	make -C $(LIBSHARDCACHE_DIR) static
@@ -29,9 +34,10 @@ $(LIBSHARDCACHE_DIR)/libshardcache.a:
 shardcached: objects
 	gcc src/*.o $(LDFLAGS) -o shardcached
 
-objects: CFLAGS += -fPIC -I$(LIBSHARDCACHE_DIR)/src -I$(LIBSHARDCACHE_DIR)/deps/.incs -Isrc -Ideps/.incs -Wall -Werror -Wno-parentheses -Wno-pointer-sign -O3
+objects: CFLAGS += -fPIC -Ideps/.incs -Isrc -Ideps/.incs -Wall -Werror -Wno-parentheses -Wno-pointer-sign -O3
 objects: $(TARGETS)
 
 clean:
 	rm -f src/*.o
 	rm -f shardcached
+	make -C deps clean
