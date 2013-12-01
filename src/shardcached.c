@@ -32,6 +32,11 @@
 
 #define SHARDCACHED_ADDRESS_DEFAULT "4321"
 #define SHARDCACHED_LOGLEVEL_DEFAULT 0
+#define SHARDCACHED_SECRET_DEFAULT "default"
+#define SHARDCACHED_STORAGE_TYPE_DEFAULT "mem"
+#define SHARDCACHED_STORAGE_OPTIONS_DEFAULT "initial_table_size=1024,max_table_size=1000000"
+#define SHARDCACHED_STATS_INTERVAL_DEFAULT 60
+
 #define SHARDCACHED_USERAGENT_SIZE_THRESHOLD 16
 #define SHARDCACHED_MAX_SHARDS 1024
 
@@ -67,13 +72,13 @@ static void usage(char *progname, char *msg, ...)
            "Possible options:\n"
            "    -f                    run in foreground\n"
            "    -d <level>            debug level\n"
-           "    -i <interval>         change the time interval (in seconds) after which stats are reported via syslog (defaults to '30')\n"
+           "    -i <interval>         change the time interval (in seconds) after which stats are reported via syslog (defaults to '%d')\n"
            "    -l <ip_address:port>  ip address:port where to listen for incoming http connections\n"
            "    -b                    HTTP url basepath\n"
            "    -p <peers>            list of peers participating in the shardcache in the form : 'address:port,address2:port2'\n"
-           "    -s                    shared secret used for message signing\n"
-           "    -t <type>             storage type (available are : 'mem' and 'fs' (defaults to 'mem')\n"
-           "    -o <options>          storage options (defaults to 'initial_table_size=1024,max_table_size=1000000'\n"
+           "    -s                    shared secret used for message signing (defaults to : '%s')\n"
+           "    -t <type>             storage type (available are : 'mem' and 'fs' (defaults to '%s')\n"
+           "    -o <options>          storage options (defaults to '%s')\n"
            "       Storage Types:\n"
            "         * mem       memory based storage\n"
            "            Options:\n"
@@ -84,7 +89,11 @@ static void usage(char *progname, char *msg, ...)
            "            Options:\n"
            "              - storage_path           the parh where to store the keys/values on the filesystem\n"
            "              - tmp_path               the path to a temporary directory to use while new data is being uploaded\n"
-           , progname);
+           , progname
+           , SHARDCACHED_STATS_INTERVAL_DEFAULT
+           , SHARDCACHED_SECRET_DEFAULT
+           , SHARDCACHED_STORAGE_TYPE_DEFAULT
+           , SHARDCACHED_STORAGE_OPTIONS_DEFAULT);
 
     exit(-2);
 }
@@ -257,12 +266,12 @@ int main(int argc, char **argv)
     int loglevel = SHARDCACHED_LOGLEVEL_DEFAULT;
     char *listen_address = SHARDCACHED_ADDRESS_DEFAULT;
     char *peers = NULL;
-    char *secret = "default";
-    char *storage_type = "mem";
+    char *secret = SHARDCACHED_SECRET_DEFAULT;
+    char *storage_type = SHARDCACHED_STORAGE_TYPE_DEFAULT;
     char options_string[MAX_OPTIONS_STRING_LEN];
-    uint32_t stats_interval = 30;
+    uint32_t stats_interval = SHARDCACHED_STATS_INTERVAL_DEFAULT;
     
-    strcpy(options_string, "initial_table_size=1024,max_table_size=1000000");
+    strcpy(options_string, SHARDCACHED_STORAGE_OPTIONS_DEFAULT);
 
     static struct option long_options[] = {
         {"base", 2, 0, 'b'},
@@ -303,7 +312,7 @@ int main(int argc, char **argv)
                 listen_address = optarg;
                 break;
             case 'p':
-                peers = optarg;
+                peers = strdup(optarg);
                 break;
             case 's':
                 secret = optarg;
@@ -343,18 +352,19 @@ int main(int argc, char **argv)
     }
 
     char *shard_names[SHARDCACHED_MAX_SHARDS];
-
-    char *tok = strtok(peers, ",");
     int cnt = 0;
-    while(tok) {
-        matched = regexec(&addr_regexp, tok, 0, NULL, 0);
-        if (matched != 0) {
-            usage(argv[0], "Bad address format for peer: '%s'", tok);
-        }
-        shard_names[cnt] = tok;
-        cnt++;
-        tok = strtok(NULL, ",");
-    } 
+    if (peers) {
+        char *tok = strtok(peers, ",");
+        while(tok) {
+            matched = regexec(&addr_regexp, tok, 0, NULL, 0);
+            if (matched != 0) {
+                usage(argv[0], "Bad address format for peer: '%s'", tok);
+            }
+            shard_names[cnt] = tok;
+            cnt++;
+            tok = strtok(NULL, ",");
+        } 
+    }
 
     regfree(&addr_regexp);
 
@@ -404,7 +414,7 @@ int main(int argc, char **argv)
     } else {
         ERROR("Can't start the http subsystem");
     }
-    
+
     NOTICE("exiting");
 
     mg_stop(ctx);  
@@ -413,6 +423,8 @@ int main(int argc, char **argv)
 
     if (storage_destroy)
         storage_destroy(storage);
-    
+
+    free(peers);
+
     exit(0);
 }
