@@ -1,10 +1,12 @@
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include <log.h>
 #include <fbuf.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/file.h>
+#include <sys/stat.h>
 #include <errno.h>
 #include "storage_fs.h"
 
@@ -64,14 +66,66 @@ static void *st_init(const char **args)
     return storage;
 }
 
+static char *st_fs_filename(char *basepath, void *key, size_t klen, char **intermediate_path)
+{
+    int i;
+    struct stat st; 
+
+    if (!klen)
+        return NULL;
+
+    if (stat(basepath, &st) != 0) {
+        if (mkdir(basepath, S_IRWXU) != 0) {
+            fprintf(stderr, "Can't create directory %s: %s\n",
+                    basepath, strerror(errno));
+            return NULL;
+        }
+    }
+
+    char fname[(klen*2)+1];
+    char *p = &fname[0];
+    for (i = 0; i < klen; i++) {
+        snprintf(p, 3, "%02x", ((char *)key)[i]);
+        p+=2;
+    }
+
+    char dname[5];
+    if (klen >= 2) {
+        snprintf(dname, 5, "%02x%02x", ((char *)key)[0], ((char *)key)[klen-1]);
+    } else {
+        snprintf(dname, 5, "%02x00", ((char *)key)[0]);
+    }
+    dname[4] = 0;
+
+    int dirnamelen = strlen(basepath)+6;
+    char dirname[dirnamelen];
+    snprintf(dirname, dirnamelen, "%s/%s", basepath, dname);
+    if (stat(dirname, &st) != 0) {
+        if (mkdir(dirname, S_IRWXU) != 0) {
+            fprintf(stderr, "Can't create directory %s: %s\n",
+                    dirname, strerror(errno));
+            return NULL;
+        }
+    }
+
+    size_t fullpath_len = strlen(dirname) + strlen(fname) + 2;
+    char *fullpath = malloc(fullpath_len);
+
+    snprintf(fullpath, fullpath_len, "%s/%s", dirname, fname);
+
+    if (intermediate_path) {
+        *intermediate_path = strdup(dirname);
+    }
+    return fullpath;
+}
+
 static void *st_fetch(void *key, size_t klen, size_t *vlen, void *priv)
 {
     storage_fs_t *storage = (storage_fs_t *)priv;
+    char *fullpath = st_fs_filename(storage->path, key, klen, NULL);
 
-    size_t fullpath_len = strlen(storage->path)+klen+2;
-    char *fullpath = malloc(fullpath_len);
-    // XXX - assuming that key is a string, MUST FIX
-    snprintf(fullpath, fullpath_len, "%s/%s", storage->path, (char *)key);
+    if (!fullpath)
+        return NULL;
 
     int fd = open(fullpath, O_RDONLY);
     if (fd >=0) {
@@ -88,9 +142,11 @@ static void *st_fetch(void *key, size_t klen, size_t *vlen, void *priv)
         if (fbuf_used(&buf)) {
             if (vlen)
                 *vlen = fbuf_used(&buf);
+            free(fullpath);
             return fbuf_data(&buf);
         }
     }
+    free(fullpath);
     return NULL;
 }
 
@@ -99,13 +155,24 @@ static int st_store(void *key, size_t klen, void *value, size_t vlen, void *priv
     storage_fs_t *storage = (storage_fs_t *)priv;
 
     int ret = -1;
-    size_t tmppath_len = strlen(storage->path)+klen+2;
-    char *tmppath = malloc(tmppath_len);
-    // XXX - assuming that key is a string, MUST FIX
-    snprintf(tmppath, tmppath_len, "%s/%s", storage->tmp, (char *)key);
+    long r = random();
+    int i;
+
+    char dname[9];
+    char *p = &dname[0];
+    for (i = 0; i < 4; i++) {
+        snprintf(p, 3, "%02x", ((char *)&r)[i]);
+        p += 2;
+    }
+
+    size_t tmpdir_len = strlen(storage->tmp)+9;
+    char tmpdir[tmpdir_len];
+    char *tmp_intermediate = NULL;
+    char *intermediate_dir = NULL;
+    snprintf(tmpdir, tmpdir_len, "%s/%s", storage->tmp, dname);
+    char *tmppath = st_fs_filename(tmpdir, key, klen, &tmp_intermediate);
     int fd = open(tmppath, O_WRONLY|O_TRUNC|O_CREAT, S_IRWXU|S_IRWXG|S_IRWXO);
     if (fd >=0) {
-        flock(fd, LOCK_EX);
         int ofx = 0;
         while (ofx != vlen) {
             int wb = write(fd, value+ofx, vlen - ofx);
@@ -117,27 +184,32 @@ static int st_store(void *key, size_t klen, void *value, size_t vlen, void *priv
             }
         }
         if (ofx == vlen) {
-            size_t fullpath_len = strlen(storage->path)+klen+2;
-            char *fullpath = malloc(fullpath_len);
-            // XXX - assuming that key is a string, MUST FIX
-            snprintf(fullpath, fullpath_len, "%s/%s", storage->path, (char *)key);
+            char *fullpath = st_fs_filename(storage->path, key, klen, &intermediate_dir);
             ret = link(tmppath, fullpath);
-            unlink(tmppath);
+            free(fullpath);
         }
-        flock(fd, LOCK_UN);
         close(fd);
     }
+
+    unlink(tmppath);
+    rmdir(tmp_intermediate);
+    rmdir(tmpdir);
+    free(tmppath);
+    free(tmp_intermediate);
+    if (intermediate_dir)
+        free(intermediate_dir);
     return ret;
 }
 
 static int st_remove(void *key, size_t klen, void *priv) {
     storage_fs_t *storage = (storage_fs_t *)priv;
-
-    size_t fullpath_len = strlen(storage->path)+klen+1;
-    char *fullpath = malloc(fullpath_len);
-    // XXX - assuming that key is a string, MUST FIX
-    snprintf(fullpath, fullpath_len, "%s/%s", storage->path, (char *)key);
-    return unlink(fullpath); 
+    char *intermediate_dir = NULL;
+    char *fullpath = st_fs_filename(storage->path, key, klen, &intermediate_dir);
+    int ret = unlink(fullpath); 
+    rmdir(intermediate_dir);
+    free(fullpath);
+    free(intermediate_dir);
+    return ret;
 }
 
 static void st_destroy(void *priv) {
