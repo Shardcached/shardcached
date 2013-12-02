@@ -18,6 +18,7 @@ all:
 	    export DEPS_INSTALL_DIR=$(DEPS_INSTALL_DIR); \
 	    export CFLAGS="$(CFLAGS) -DHAVE_UINT64_T"; \
 	    make -eC $$name; \
+	    if [ $$? -ne 0 ] ; then exit $$?; fi; \
 	    make -eC $$name install; \
 	done
 
