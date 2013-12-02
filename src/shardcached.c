@@ -382,7 +382,8 @@ int main(int argc, char **argv)
 
     NOTICE("exiting");
 
-    mg_stop(ctx);  
+    if (ctx)
+        mg_stop(ctx);
 
     shardcache_destroy(cache);
 
