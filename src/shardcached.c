@@ -137,7 +137,7 @@ static int shardcached_request_handler(struct mg_connection *conn) {
 
             shardcache_get_stats(cache, &stats);
 
-            fbuf_printf(&buf,"Shardcache stats:  gets => %u, sets => %u, dels => %u, cache misses => %u, not found => %u\n",
+            fbuf_printf(&buf,"Shardcache stats:  gets: %u\r\nsets: %u\r\ndels: %u\r\ncache misses: %u\r\nnot found: %u\r\n",
                                 stats.ngets,
                                 stats.nsets,
                                 stats.ndels,
