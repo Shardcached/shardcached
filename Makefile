@@ -34,7 +34,7 @@ $(LIBSHARDCACHE_DIR)/libshardcache.a:
 shardcached: objects
 	gcc src/*.o $(LDFLAGS) -o shardcached
 
-objects: CFLAGS += -fPIC -Ideps/.incs -Isrc -Ideps/.incs -Wall -Werror -Wno-parentheses -Wno-pointer-sign -O3
+objects: CFLAGS += -fPIC -Ideps/.incs -Isrc -Wall -Werror -Wno-parentheses -Wno-pointer-sign -O3
 objects: $(TARGETS)
 
 clean:
