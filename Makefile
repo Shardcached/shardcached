@@ -20,7 +20,7 @@ TARGETS = $(patsubst %.c, %.o, $(wildcard src/*.c))
 all: build_deps objects shardcached
 
 build_deps:
-	@make -eC deps all
+	@make -C deps all
 
 update_deps:
 	@make -C deps update
