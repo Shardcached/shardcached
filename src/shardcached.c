@@ -27,8 +27,7 @@
 #include <fbuf.h>
 #include <shardcache.h>
 
-#include "storage_mem.h"
-#include "storage_fs.h"
+#include "storage.h"
 
 #define SHARDCACHED_ADDRESS_DEFAULT "4321"
 #define SHARDCACHED_LOGLEVEL_DEFAULT 0
@@ -44,9 +43,6 @@
 #define ATOMIC_CMPXCHG(__p, __v1, __v2) __sync_bool_compare_and_swap(&__p, __v1, __v2)
 
 #define ADDR_REGEXP "^[a-z0-9_\\.\\-]+(:[0-9]+)?$"
-
-#define MAX_STORAGE_OPTIONS 256
-#define MAX_OPTIONS_STRING_LEN 2048
 
 static char *me = NULL;
 static char *basepath = NULL;
@@ -70,8 +66,8 @@ static void usage(char *progname, char *msg, ...)
 
     printf("Usage: %s [OPTION]...\n"
            "Possible options:\n"
+           "    -d <plugins_path>     the path where to look for storage plugins (defaults to the CWD of the process)\n"
            "    -f                    run in foreground\n"
-           "    -d <level>            debug level\n"
            "    -i <interval>         change the time interval (in seconds) after which stats are reported via syslog (defaults to '%d')\n"
            "    -l <ip_address:port>  ip address:port where to listen for incoming http connections\n"
            "    -b                    HTTP url basepath\n"
@@ -79,6 +75,8 @@ static void usage(char *progname, char *msg, ...)
            "    -s                    shared secret used for message signing (defaults to : '%s')\n"
            "    -t <type>             storage type (available are : 'mem' and 'fs' (defaults to '%s')\n"
            "    -o <options>          storage options (defaults to '%s')\n"
+           "    -v                    increate the log level (can be passed multiple times)\n"
+           "\n"
            "       Storage Types:\n"
            "         * mem       memory based storage\n"
            "            Options:\n"
@@ -189,43 +187,6 @@ static int shardcached_request_handler(struct mg_connection *conn) {
 void shardcached_end_request_handler(const struct mg_connection *conn, int reply_status_code) {
 }
 
-typedef void (*shardcache_storage_destroyer_t)(shardcache_storage_t *);
-
-shardcache_storage_destroyer_t
-shardcached_init_storage(char *storage_type, char *options_string, shardcache_storage_t **storage)
-{
-    const char *storage_options[MAX_STORAGE_OPTIONS];
-    shardcache_storage_destroyer_t storage_destroy = NULL;
-
-    int optidx = 0;
-    char *p = options_string;
-    char *str = p;
-    while (*p != 0 && optidx < MAX_STORAGE_OPTIONS) {
-        if (*p == '=' || *p == ',') {
-            *p = 0;
-            storage_options[optidx++] = str;
-            str = p+1;
-        }
-        p++;
-    }
-    storage_options[optidx++] = str;
-    storage_options[optidx] = NULL;
-    // initialize the storage layer 
-    if (strcmp(storage_type, "mem") == 0) {
-        // TODO - validate options
-        *storage = storage_mem_create(storage_options);
-        storage_destroy = storage_mem_destroy;
-
-    } else if (strcmp(storage_type, "fs") == 0) {
-        // TODO - validate options
-        *storage = storage_fs_create(storage_options);
-        storage_destroy = storage_fs_destroy;
-    } else {
-        usage("Unknown storage type: %s\n", storage_type);
-    }
-    return storage_destroy;
-}
-
 static void shardcached_run(shardcache_t *cache, uint32_t stats_interval)
 {
     if (stats_interval) {
@@ -270,12 +231,13 @@ int main(int argc, char **argv)
     char *storage_type = SHARDCACHED_STORAGE_TYPE_DEFAULT;
     char options_string[MAX_OPTIONS_STRING_LEN];
     uint32_t stats_interval = SHARDCACHED_STATS_INTERVAL_DEFAULT;
+    char *plugins_dir = "./";
     
     strcpy(options_string, SHARDCACHED_STORAGE_OPTIONS_DEFAULT);
 
     static struct option long_options[] = {
         {"base", 2, 0, 'b'},
-        {"debug", 2, 0, 'd'},
+        {"plugins_directory", 2, 0, 'd'},
         {"foreground", 0, 0, 'f'},
         {"stats_interval", 2, 0, 'i'},
         {"listen", 2, 0, 'l'},
@@ -283,12 +245,13 @@ int main(int argc, char **argv)
         {"secret", 2, 0, 's'},
         {"type", 2, 0, 't'},
         {"options", 2, 0, 'o'},
+        {"verbose", 0, 0, 'v'},
         {"help", 0, 0, 'h'},
         {0, 0, 0, 0}
     };
 
     char c;
-    while ((c = getopt_long (argc, argv, "b:d:fhi:l:p:s:t:o:?", long_options, &option_index))) {
+    while ((c = getopt_long (argc, argv, "b:d:fhi:l:p:s:t:o:v?", long_options, &option_index))) {
         if (c == -1) {
             break;
         }
@@ -300,7 +263,7 @@ int main(int argc, char **argv)
                     basepath++;
                 break;
             case 'd':
-                loglevel = strtol(optarg, NULL, 10);
+                plugins_dir = optarg;
                 break;
             case 'f':
                 foreground = 1;
@@ -322,6 +285,9 @@ int main(int argc, char **argv)
                 break;
             case 'o':
                 snprintf(options_string, sizeof(options_string), "%s", optarg);
+                break;
+            case 'v':
+                loglevel++;
                 break;
             case 'h':
             case '?':
@@ -384,14 +350,13 @@ int main(int argc, char **argv)
 
     log_init("shardcached", loglevel);
 
-    shardcache_storage_t *storage = NULL;
-    shardcache_storage_destroyer_t storage_destroy = shardcached_init_storage(storage_type, options_string, &storage);
-    if (!storage) {
+    shcd_storage_t *st = shcd_storage_init(storage_type, options_string, plugins_dir);
+    if (!st) {
         ERROR("Can't initialize the storage subsystem");
         exit(-1);
     }
 
-    shardcache_t *cache = shardcache_create(me, shard_names, cnt, storage, secret, 5);
+    shardcache_t *cache = shardcache_create(me, shard_names, cnt, shcd_storage_get(st), secret, 5);
     if (!cache) {
         ERROR("Can't initialize the shardcache engine");
         exit(-1);
@@ -421,8 +386,7 @@ int main(int argc, char **argv)
 
     shardcache_destroy(cache);
 
-    if (storage_destroy)
-        storage_destroy(storage);
+    shcd_storage_destroy(st);
 
     free(peers);
 

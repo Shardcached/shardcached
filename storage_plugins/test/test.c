@@ -1,8 +1,8 @@
 #include <stdlib.h>
 #include <string.h>
-#include <log.h>
+#include <stdio.h>
 #include <hashtable.h>
-#include "storage_mem.h"
+#include <shardcache.h>
 
 typedef struct {
     void *value;
@@ -55,7 +55,9 @@ static int st_remove(void *key, size_t len, void *priv) {
     return 0;
 }
 
-shardcache_storage_t *storage_mem_create(const char **options) {
+// following the symbols exported by the plugin
+
+shardcache_storage_t *storage_create(const char **options) {
     shardcache_storage_t *st = calloc(1, sizeof(shardcache_storage_t));
     st->fetch_item      = st_fetch;
     st->store_item      = st_store;
@@ -70,7 +72,7 @@ shardcache_storage_t *storage_mem_create(const char **options) {
             if (*options) {
                 value = (char *)*options++;
             } else {
-                ERROR("Odd element in the options array");
+                fprintf(stderr, "Odd element in the options array\n");
                 continue;
             }
             if (key && value) {
@@ -79,19 +81,20 @@ shardcache_storage_t *storage_mem_create(const char **options) {
                 } else if (strcmp(key, "max_table_size") == 0) {
                     maxsize = strtol(value, NULL, 10);
                 } else {
-                    ERROR("Unknown option name %s", key);
+                    fprintf(stderr, "Unknown option name %s\n", key);
                 }
             }
         }
     }
     hashtable_t *storage = ht_create(size, maxsize, free_item_cb);
-    st->priv = storage;
-    
+    st->priv = storage; 
     return st;
 }
 
-void storage_mem_destroy(shardcache_storage_t *st) {
+void storage_destroy(shardcache_storage_t *st) {
     hashtable_t *storage = (hashtable_t *)st->priv;
     ht_destroy(storage);
     free(st);
 }
+
+
