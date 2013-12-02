@@ -5,10 +5,10 @@ LDFLAGS += deps/.libs/libshardcache.a \
 	   deps/.libs/libhl.a \
 	   deps/.libs/libchash.a \
 	   deps/.libs/libsiphash.a \
-	   -L. 
+	   -L. -ldl
 
 ifeq ($(UNAME), Linux)
-LDFLAGS += -pthread -ldl
+LDFLAGS += -pthread
 else
 LDFLAGS +=
 CFLAGS += -Wno-deprecated-declarations
