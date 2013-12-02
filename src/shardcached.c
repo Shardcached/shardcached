@@ -131,6 +131,26 @@ static int shardcached_request_handler(struct mg_connection *conn) {
     }
 
     if (strncasecmp(request_info->request_method, "GET", 3) == 0) {
+        if (strcmp(key, "__stats__") == 0) {
+            shardcache_stats_t stats;
+            fbuf_t buf = FBUF_STATIC_INITIALIZER;
+
+            shardcache_get_stats(cache, &stats);
+
+            fbuf_printf(&buf,"Shardcache stats:  gets => %u, sets => %u, dels => %u, cache misses => %u, not found => %u\n",
+                                stats.ngets,
+                                stats.nsets,
+                                stats.ndels,
+                                stats.ncache_misses,
+                                stats.nnot_found);
+
+            mg_printf(conn, "HTTP/1.0 200 OK\r\n"
+                            "Content-Type: text/plain\r\n"
+                            "Content-length: %d\r\n"
+                            "Server: shardcached\r\n"
+                            "Connection: Close\r\n\r\n%s", fbuf_used(&buf), fbuf_data(&buf));
+
+        }
         size_t vlen = 0;
         void *value = shardcache_get(cache, key, strlen(key), &vlen);
         if (value) {
@@ -190,6 +210,8 @@ void shardcached_end_request_handler(const struct mg_connection *conn, int reply
 static void shardcached_run(shardcache_t *cache, uint32_t stats_interval)
 {
     if (stats_interval) {
+        shardcache_stats_t prevstats;
+        memset(&prevstats, 0, sizeof(shardcache_stats_t));
         while (!__sync_fetch_and_add(&should_exit, 0)) {
             int rc = 0;
             struct timespec to_sleep = {
@@ -209,8 +231,12 @@ static void shardcached_run(shardcache_t *cache, uint32_t stats_interval)
             shardcache_stats_t stats;
             shardcache_get_stats(cache, &stats);
             NOTICE("Shardcache stats:  gets => %u, sets => %u, dels => %u, cache misses => %u, not found => %u\n",
-                    stats.ngets, stats.nsets, stats.ndels, stats.ncache_misses, stats.nnot_found);
-            shardcache_clear_stats(cache);
+                    stats.ngets - prevstats.ngets,
+                    stats.nsets - prevstats.nsets,
+                    stats.ndels - prevstats.ndels,
+                    stats.ncache_misses - prevstats.ncache_misses,
+                    stats.nnot_found - prevstats.nnot_found);
+            memcpy(&prevstats, &stats, sizeof(shardcache_stats_t));
         }
     } else {
         // and keep working until we are told to exit
