@@ -1,11 +1,12 @@
 UNAME := $(shell uname)
 
-LDFLAGS += deps/.libs/libshardcache.a \
-	   deps/.libs/libiomux.a \
-	   deps/.libs/libhl.a \
-	   deps/.libs/libchash.a \
-	   deps/.libs/libsiphash.a \
-	   -L. -ldl
+DEPS += deps/.libs/libshardcache.a \
+        deps/.libs/libiomux.a \
+        deps/.libs/libhl.a \
+        deps/.libs/libchash.a \
+        deps/.libs/libsiphash.a
+
+LDFLAGS += -L. -ldl
 
 ifeq ($(UNAME), Linux)
 LDFLAGS += -pthread
@@ -17,10 +18,11 @@ endif
 #CC = gcc
 TARGETS = $(patsubst %.c, %.o, $(wildcard src/*.c))
 
-all: build_deps objects shardcached
+all: objects shardcached
 
+.PHONY: build_deps
 build_deps:
-	@make -C deps all
+	@make -eC deps all
 
 update_deps:
 	@make -C deps update
@@ -32,10 +34,12 @@ $(LIBSHARDCACHE_DIR)/libshardcache.a:
 	make -C $(LIBSHARDCACHE_DIR) static
 
 shardcached: objects
-	gcc src/*.o $(LDFLAGS) -o shardcached
+	gcc src/*.o $(LDFLAGS) $(DEPS) -o shardcached
 
-objects: CFLAGS += -fPIC -Ideps/.incs -Isrc -Wall -Werror -Wno-parentheses -Wno-pointer-sign -O3
-objects: $(TARGETS)
+$(DEPS): build_deps
+
+objects: CFLAGS += -fPIC -Ideps/.incs -Isrc -Ideps/.incs -Wall -Werror -Wno-parentheses -Wno-pointer-sign -O3
+objects: $(DEPS) $(TARGETS)
 
 clean:
 	rm -f src/*.o
