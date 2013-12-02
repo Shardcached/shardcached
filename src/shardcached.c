@@ -150,19 +150,20 @@ static int shardcached_request_handler(struct mg_connection *conn) {
                             "Server: shardcached\r\n"
                             "Connection: Close\r\n\r\n%s", fbuf_used(&buf), fbuf_data(&buf));
             fbuf_destroy(&buf);
-        }
-        size_t vlen = 0;
-        void *value = shardcache_get(cache, key, strlen(key), &vlen);
-        if (value) {
-            mg_printf(conn, "HTTP/1.0 200 OK\r\n"
-                            "Content-Type: application/octet-stream\r\n"
-                            "Content-length: %d\r\n"
-                            "Server: shardcached\r\n"
-                            "Connection: Close\r\n\r\n", (int)vlen);
-            mg_write(conn, value, vlen);
-            free(value);
         } else {
-            mg_printf(conn, "HTTP/1.0 404 Not Found\r\n\r\nNot Found");
+            size_t vlen = 0;
+            void *value = shardcache_get(cache, key, strlen(key), &vlen);
+            if (value) {
+                mg_printf(conn, "HTTP/1.0 200 OK\r\n"
+                                "Content-Type: application/octet-stream\r\n"
+                                "Content-length: %d\r\n"
+                                "Server: shardcached\r\n"
+                                "Connection: Close\r\n\r\n", (int)vlen);
+                mg_write(conn, value, vlen);
+                free(value);
+            } else {
+                mg_printf(conn, "HTTP/1.0 404 Not Found\r\n\r\nNot Found");
+            }
         }
     } else if (strncasecmp(request_info->request_method, "DELETE", 6) == 0) {
         int rc = shardcache_del(cache, key, strlen(key));
