@@ -16,35 +16,6 @@ static void free_item_cb(void *ptr) {
     free(item);
 }
 
-static void *st_init(const char **args)
-{
-    int size = 1024;
-    int maxsize = 1 << 20;
-    if (args) {
-        while (*args) {
-            char *key = (char *)*args++;
-            char *value = NULL;
-            if (*args) {
-                value = (char *)*args++;
-            } else {
-                fprintf(stderr, "Odd element in the options array\n");
-                continue;
-            }
-            if (key && value) {
-                if (strcmp(key, "initial_table_size") == 0) {
-                    size = strtol(value, NULL, 10);
-                } else if (strcmp(key, "max_table_size") == 0) {
-                    maxsize = strtol(value, NULL, 10);
-                } else {
-                    fprintf(stderr, "Unknown option name %s\n", key);
-                }
-            }
-        }
-    }
-    hashtable_t *storage = ht_create(size, maxsize, free_item_cb);
-    return storage;
-}
-
 static void *copy_item_cb(void *ptr, size_t len) {
     stored_item_t *item = (stored_item_t *)ptr;
     stored_item_t *copy = malloc(sizeof(stored_item_t));
@@ -84,25 +55,45 @@ static int st_remove(void *key, size_t len, void *priv) {
     return 0;
 }
 
-static void st_destroy(void *priv) {
-    hashtable_t *storage = (hashtable_t *)priv;
-    ht_destroy(storage);
-}
-
 // following the symbols exported by the plugin
 
 shardcache_storage_t *storage_create(const char **options) {
     shardcache_storage_t *st = calloc(1, sizeof(shardcache_storage_t));
-    st->init_storage    = st_init;
     st->fetch_item      = st_fetch;
     st->store_item      = st_store;
     st->remove_item     = st_remove;
-    st->destroy_storage = st_destroy;
-    st->options = options;
+
+    int size = 1024;
+    int maxsize = 1 << 20;
+    if (options) {
+        while (*options) {
+            char *key = (char *)*options++;
+            char *value = NULL;
+            if (*options) {
+                value = (char *)*options++;
+            } else {
+                fprintf(stderr, "Odd element in the options array\n");
+                continue;
+            }
+            if (key && value) {
+                if (strcmp(key, "initial_table_size") == 0) {
+                    size = strtol(value, NULL, 10);
+                } else if (strcmp(key, "max_table_size") == 0) {
+                    maxsize = strtol(value, NULL, 10);
+                } else {
+                    fprintf(stderr, "Unknown option name %s\n", key);
+                }
+            }
+        }
+    }
+    hashtable_t *storage = ht_create(size, maxsize, free_item_cb);
+    st->priv = storage; 
     return st;
 }
 
 void storage_destroy(shardcache_storage_t *st) {
+    hashtable_t *storage = (hashtable_t *)st->priv;
+    ht_destroy(storage);
     free(st);
 }
 

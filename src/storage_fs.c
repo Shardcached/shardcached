@@ -15,57 +15,6 @@ typedef struct {
     char *tmp;
 } storage_fs_t;
 
-static void *st_init(const char **args)
-{
-    storage_fs_t *storage = NULL;
-    char *storage_path = NULL;
-    char *tmp_path = NULL;
-    if (args) {
-        while (*args) {
-            char *key = (char *)*args++;
-            char *value = NULL;
-            if (*args) {
-                value = (char *)*args++;
-            } else {
-                ERROR("Odd element in the options array");
-                continue;
-            }
-            if (key && value) {
-                if (strcmp(key, "storage_path") == 0) {
-                    storage_path = strdup(value);
-                } else if (strcmp(key, "tmp_path") == 0) {
-                    tmp_path = strdup(value);
-                }else {
-                    ERROR("Unknown option name %s", key);
-                }
-            }
-        }
-    }
-    if (storage_path) {
-        int check = access(storage_path, R_OK|W_OK);
-        if (check != 0) {
-            /* TODO - Error Messages */
-            return NULL;
-        }
-
-        storage = calloc(1, sizeof(storage_fs_t));
-        storage->path = storage_path;
-        if (tmp_path)
-            storage->tmp = tmp_path;
-        else
-            storage->tmp = strdup("/tmp");
-        check = access(storage->tmp, R_OK|W_OK);
-        if (check != 0) {
-            /* TODO - Error Messages */
-            free(storage);
-            return NULL;
-        }
-    } else {
-        // TODO - Error Messages
-    }
-    return storage;
-}
-
 static char *st_fs_filename(char *basepath, void *key, size_t klen, char **intermediate_path)
 {
     int i;
@@ -212,24 +161,77 @@ static int st_remove(void *key, size_t klen, void *priv) {
     return ret;
 }
 
-static void st_destroy(void *priv) {
-    storage_fs_t *storage = (storage_fs_t *)priv;
-    free(storage->path);
-    free(storage->tmp);
-    free(storage);
-}
-
 shardcache_storage_t *storage_fs_create(const char **options) {
     shardcache_storage_t *st = calloc(1, sizeof(shardcache_storage_t));
-    st->init_storage    = st_init;
     st->fetch_item      = st_fetch;
     st->store_item      = st_store;
     st->remove_item     = st_remove;
-    st->destroy_storage = st_destroy;
-    st->options = options;
+
+    storage_fs_t *storage = NULL;
+    char *storage_path = NULL;
+    char *tmp_path = NULL;
+    if (options) {
+        while (*options) {
+            char *key = (char *)*options++;
+            char *value = NULL;
+            if (*options) {
+                value = (char *)*options++;
+            } else {
+                ERROR("Odd element in the options array");
+                continue;
+            }
+            if (key && value) {
+                if (strcmp(key, "storage_path") == 0) {
+                    storage_path = strdup(value);
+                } else if (strcmp(key, "tmp_path") == 0) {
+                    tmp_path = strdup(value);
+                }else {
+                    ERROR("Unknown option name %s", key);
+                }
+            }
+        }
+    }
+    if (storage_path) {
+        int check = access(storage_path, R_OK|W_OK);
+        if (check != 0) {
+            /* TODO - Error Messages */
+            if (storage_path)
+                free(storage_path);
+            if (tmp_path)
+                free(tmp_path);
+            free(st);
+            return NULL;
+        }
+
+        storage = calloc(1, sizeof(storage_fs_t));
+        storage->path = storage_path;
+        if (tmp_path)
+            storage->tmp = tmp_path;
+        else
+            storage->tmp = strdup("/tmp");
+        check = access(storage->tmp, R_OK|W_OK);
+        if (check != 0) {
+            /* TODO - Error Messages */
+            free(storage);
+            free(st);
+            if (storage_path)
+                free(storage_path);
+            if (tmp_path)
+                free(tmp_path);
+            return NULL;
+        }
+    } else {
+        // TODO - Error Messages
+    }
+    st->priv = storage;
+
     return st;
 }
 
 void storage_fs_destroy(shardcache_storage_t *st) {
+    storage_fs_t *storage = (storage_fs_t *)st->priv;
+    free(storage->path);
+    free(storage->tmp);
+    free(storage);
     free(st);
 }
