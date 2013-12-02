@@ -4,8 +4,14 @@ use strict;
 use HTTP::Request;
 use LWP;
 use File::Slurp;
+use DBI;
+
+$ENV{PERL_LWP_ENV_PROXY} = 1
+    if ($ENV{http_proxy});
 
 $| = 0;
+
+my $dbfile = $ENV{SHCD_DBFILE} || "$ENV{HOME}/shd.db";
 
 my $key = shift @ARGV;
 my $output_file = shift @ARGV;
@@ -24,7 +30,15 @@ my $ua = LWP::UserAgent->new;
 my $response = $ua->request($request);
 
 if ($response->code == 200) {
-    write_file($output_file, $response->content);
+    my $data = $response->content;
+    eval {
+        my $dbh = DBI->connect("dbi:SQLite:dbname=$dbfile","","")
+            or die "Can't open sqlite database $dbfile";
+        $dbh->do("CREATE TABLE IF NOT EXISTS shd_index (key TEXT PRIMARY KEY, size INTEGER)");
+        $dbh->do(sprintf"INSERT OR REPLACE INTO shd_index VALUES(%s, %d)", $dbh->quote($key), length($data));
+    };
+
+    write_file($output_file, $data);
 }
 print $response->code . "\n";
 
