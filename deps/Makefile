@@ -29,7 +29,8 @@ update:
 		git pull;\
 		cd -;\
 	    fi;\
-	done
+	done; \
+    make -eC libshardcache update_deps
 
 purge: clean
 	@for i in $(DEPS); do \
