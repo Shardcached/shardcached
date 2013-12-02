@@ -35,12 +35,10 @@
 #define SHARDCACHED_STORAGE_TYPE_DEFAULT "mem"
 #define SHARDCACHED_STORAGE_OPTIONS_DEFAULT "initial_table_size=1024,max_table_size=1000000"
 #define SHARDCACHED_STATS_INTERVAL_DEFAULT 60
+#define SHARDCACHED_NUM_WORKERS_DEFAULT 50
 
 #define SHARDCACHED_USERAGENT_SIZE_THRESHOLD 16
 #define SHARDCACHED_MAX_SHARDS 1024
-
-#define ATOMIC_READ(__p) __sync_fetch_and_add(&__p, 0)
-#define ATOMIC_CMPXCHG(__p, __v1, __v2) __sync_bool_compare_and_swap(&__p, __v1, __v2)
 
 #define ADDR_REGEXP "^[a-z0-9_\\.\\-]+(:[0-9]+)?$"
 
@@ -76,6 +74,7 @@ static void usage(char *progname, char *msg, ...)
            "    -t <type>             storage type (available are : 'mem' and 'fs' (defaults to '%s')\n"
            "    -o <options>          storage options (defaults to '%s')\n"
            "    -v                    increate the log level (can be passed multiple times)\n"
+           "    -w <num_workers>      number of shardcache worker threads (defaults to '%d')\n"
            "\n"
            "       Storage Types:\n"
            "         * mem       memory based storage\n"
@@ -91,7 +90,8 @@ static void usage(char *progname, char *msg, ...)
            , SHARDCACHED_STATS_INTERVAL_DEFAULT
            , SHARDCACHED_SECRET_DEFAULT
            , SHARDCACHED_STORAGE_TYPE_DEFAULT
-           , SHARDCACHED_STORAGE_OPTIONS_DEFAULT);
+           , SHARDCACHED_STORAGE_OPTIONS_DEFAULT
+           , SHARDCACHED_NUM_WORKERS_DEFAULT);
 
     exit(-2);
 }
@@ -232,6 +232,7 @@ int main(int argc, char **argv)
     char options_string[MAX_OPTIONS_STRING_LEN];
     uint32_t stats_interval = SHARDCACHED_STATS_INTERVAL_DEFAULT;
     char *plugins_dir = "./";
+    int num_workers = SHARDCACHED_NUM_WORKERS_DEFAULT;
     
     strcpy(options_string, SHARDCACHED_STORAGE_OPTIONS_DEFAULT);
 
@@ -246,12 +247,13 @@ int main(int argc, char **argv)
         {"type", 2, 0, 't'},
         {"options", 2, 0, 'o'},
         {"verbose", 0, 0, 'v'},
+        {"workers", 2, 0, 'w'},
         {"help", 0, 0, 'h'},
         {0, 0, 0, 0}
     };
 
     char c;
-    while ((c = getopt_long (argc, argv, "b:d:fhi:l:p:s:t:o:v?", long_options, &option_index))) {
+    while ((c = getopt_long (argc, argv, "b:d:fhi:l:p:s:t:o:vw:?", long_options, &option_index))) {
         if (c == -1) {
             break;
         }
@@ -288,6 +290,9 @@ int main(int argc, char **argv)
                 break;
             case 'v':
                 loglevel++;
+                break;
+            case 'w':
+                num_workers = strtol(optarg, NULL, 10);
                 break;
             case 'h':
             case '?':
@@ -356,7 +361,8 @@ int main(int argc, char **argv)
         exit(-1);
     }
 
-    shardcache_t *cache = shardcache_create(me, shard_names, cnt, shcd_storage_get(st), secret, 5);
+    DEBUG("Starting the shardcache engine with %d workers", num_workers);
+    shardcache_t *cache = shardcache_create(me, shard_names, cnt, shcd_storage_get(st), secret, num_workers);
     if (!cache) {
         ERROR("Can't initialize the shardcache engine");
         exit(-1);
