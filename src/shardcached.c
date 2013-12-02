@@ -149,7 +149,7 @@ static int shardcached_request_handler(struct mg_connection *conn) {
                             "Content-length: %d\r\n"
                             "Server: shardcached\r\n"
                             "Connection: Close\r\n\r\n%s", fbuf_used(&buf), fbuf_data(&buf));
-
+            fbuf_destroy(&buf);
         }
         size_t vlen = 0;
         void *value = shardcache_get(cache, key, strlen(key), &vlen);
