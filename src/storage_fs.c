@@ -229,12 +229,15 @@ static void storage_fs_walk_and_fill_index(char *path, hashtable_t *index)
                 }
                 case DT_REG:
                 {
-                    size_t keylen = dirent->d_reclen/2;
+                    size_t namelen = strlen(dirent->d_name);
+                    size_t keylen = namelen/2;
                     char *keyname = malloc(keylen);
                     char *p = keyname;
                     int i;
-                    for (i = 0; i < dirent->d_reclen; i+=2) {
-                        sscanf(&dirent->d_name[i], "%02x", (int *)p++);
+                    for (i = 0; i < namelen; i+=2) {
+                        uint8_t c;
+                        sscanf(&dirent->d_name[i], "%02hhx", &c);
+                        *p++ = c;
                     }
                     struct stat st; 
                     if (stat(fpath, &st) != 0) {
