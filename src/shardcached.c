@@ -25,6 +25,7 @@
 #include <regex.h>
 
 #include <fbuf.h>
+#include <hashtable.h>
 #include <shardcache.h>
 
 #include "storage.h"
@@ -132,24 +133,23 @@ static int shardcached_request_handler(struct mg_connection *conn) {
 
     if (strncasecmp(request_info->request_method, "GET", 3) == 0) {
         if (strcmp(key, "__stats__") == 0) {
-            shardcache_stats_t stats;
             fbuf_t buf = FBUF_STATIC_INITIALIZER;
 
-            shardcache_get_stats(cache, &stats);
 
             fbuf_printf(&buf, "<html><body><table bgcolor='#000000' cellspacing='1' cellpadding='4'>"
-                              "<tr bgcolor='#ffffff'><td><b>Counter</b></td><td><b>Value</b></td></tr>"
-                              "<tr bgcolor='#ffffff'><td>gets</td><td>%u</td>"
-                              "<tr bgcolor='#ffffff'><td>sets</td><td>%u</td>"
-                              "<tr bgcolor='#ffffff'><td>dels</td><td>%u</td>"
-                              "<tr bgcolor='#ffffff'><td>cache misses</td><td>%u</td>"
-                              "<tr bgcolor='#ffffff'><td>not found</td><td>%u</td>"
-                              , stats.ngets
-                              , stats.nsets
-                              , stats.ndels
-                              , stats.ncache_misses
-                              , stats.nnot_found);
+                              "<tr bgcolor='#ffffff'><td><b>Counter</b></td><td><b>Value</b></td></tr>");
 
+
+            shardcache_counter_t *counters;
+            int ncounters = shardcache_get_counters(cache, &counters);
+            int i;
+
+            for (i = 0; i < ncounters; i++) {
+                fbuf_printf(&buf, "<tr bgcolor='#ffffff'><td>%s</td><td>%u</td>", counters[i].name, counters[i].value);
+            }
+            fbuf_printf(&buf, "</table></body></html>");
+            free(counters);
+                 
             mg_printf(conn, "HTTP/1.0 200 OK\r\n"
                             "Content-Type: text/html\r\n"
                             "Content-length: %d\r\n"
@@ -240,8 +240,7 @@ void shardcached_end_request_handler(const struct mg_connection *conn, int reply
 static void shardcached_run(shardcache_t *cache, uint32_t stats_interval)
 {
     if (stats_interval) {
-        shardcache_stats_t prevstats;
-        memset(&prevstats, 0, sizeof(shardcache_stats_t));
+        hashtable_t *prevcounters = ht_create(32, 256, free);
         while (!__sync_fetch_and_add(&should_exit, 0)) {
             int rc = 0;
             struct timespec to_sleep = {
@@ -258,16 +257,30 @@ static void shardcached_run(shardcache_t *cache, uint32_t stats_interval)
                 memset(&remainder, 0, sizeof(struct timespec));
             } while (rc != 0);
 
-            shardcache_stats_t stats;
-            shardcache_get_stats(cache, &stats);
-            NOTICE("Shardcache stats:  gets => %u, sets => %u, dels => %u, cache misses => %u, not found => %u\n",
-                    stats.ngets - prevstats.ngets,
-                    stats.nsets - prevstats.nsets,
-                    stats.ndels - prevstats.ndels,
-                    stats.ncache_misses - prevstats.ncache_misses,
-                    stats.nnot_found - prevstats.nnot_found);
-            memcpy(&prevstats, &stats, sizeof(shardcache_stats_t));
+            shardcache_counter_t *counters;
+            int ncounters = shardcache_get_counters(cache, &counters);
+            int i;
+            fbuf_t out = FBUF_STATIC_INITIALIZER;
+            for (i = 0; i < ncounters; i++) {
+                uint32_t *prev = ht_get(prevcounters, counters[i].name, strlen(counters[i].name), NULL);
+                if (i > 0)
+                    fbuf_printf(&out, ", ");
+                fbuf_printf(&out, "%s => %u", counters[i].name, counters[i].value - (prev ? *prev : 0));
+                if (prev) {
+                    *prev = counters[i].value;
+                } else {
+                    uint32_t *prev_value = malloc(sizeof(uint32_t));
+                    *prev_value = counters[i].value;
+                    ht_set(prevcounters, counters[i].name,
+                           strlen(counters[i].name), prev_value,
+                           sizeof(uint32_t));
+                }
+            }
+            NOTICE("Shardcache stats: %s\n", fbuf_data(&out));
+            fbuf_destroy(&out);
+            free(counters);
         }
+        ht_destroy(prevcounters);
     } else {
         // and keep working until we are told to exit
         pthread_mutex_lock(&exit_lock);

@@ -152,7 +152,7 @@ static int st_store(void *key, size_t klen, void *value, size_t vlen, void *priv
         free(intermediate_dir);
     size_t *sizep = malloc(sizeof(size_t));
     *sizep = vlen;
-    ht_set(storage->index, key, klen, sizep, sizeof(size_t), NULL, NULL);
+    ht_set(storage->index, key, klen, sizep, sizeof(size_t));
     return ret;
 }
 
@@ -245,7 +245,7 @@ static void storage_fs_walk_and_fill_index(char *path, hashtable_t *index)
                     }
                     size_t *sizep = malloc(sizeof(size_t));
                     *sizep = st.st_size;
-                    ht_set(index, keyname, keylen, sizep, sizeof(size_t), NULL, NULL);
+                    ht_set(index, keyname, keylen, sizep, sizeof(size_t));
                     free(keyname);
                     break;
                 }

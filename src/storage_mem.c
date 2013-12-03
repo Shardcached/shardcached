@@ -45,7 +45,7 @@ static int st_store(void *key, size_t len, void *value, size_t vlen, void *priv)
     new_item->value = malloc(vlen);
     memcpy(new_item->value, value, vlen);
     new_item->size = vlen;
-    ht_set(storage, key, len, new_item, sizeof(stored_item_t), NULL, NULL);
+    ht_set(storage, key, len, new_item, sizeof(stored_item_t));
     return 0;
 }
 
