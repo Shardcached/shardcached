@@ -137,19 +137,48 @@ static int shardcached_request_handler(struct mg_connection *conn) {
 
             shardcache_get_stats(cache, &stats);
 
-            fbuf_printf(&buf,"Shardcache stats:  gets: %u\r\nsets: %u\r\ndels: %u\r\ncache misses: %u\r\nnot found: %u\r\n",
-                                stats.ngets,
-                                stats.nsets,
-                                stats.ndels,
-                                stats.ncache_misses,
-                                stats.nnot_found);
+            fbuf_printf(&buf, "<html><body><table bgcolor='#000000' cellspacing='1' cellpadding='4'>"
+                              "<tr bgcolor='#ffffff'><td><b>Counter</b></td><td><b>Value</b></td></tr>"
+                              "<tr bgcolor='#ffffff'><td>gets</td><td>%u</td>"
+                              "<tr bgcolor='#ffffff'><td>sets</td><td>%u</td>"
+                              "<tr bgcolor='#ffffff'><td>dels</td><td>%u</td>"
+                              "<tr bgcolor='#ffffff'><td>cache misses</td><td>%u</td>"
+                              "<tr bgcolor='#ffffff'><td>not found</td><td>%u</td>"
+                              , stats.ngets
+                              , stats.nsets
+                              , stats.ndels
+                              , stats.ncache_misses
+                              , stats.nnot_found);
 
             mg_printf(conn, "HTTP/1.0 200 OK\r\n"
-                            "Content-Type: text/plain\r\n"
+                            "Content-Type: text/html\r\n"
                             "Content-length: %d\r\n"
                             "Server: shardcached\r\n"
                             "Connection: Close\r\n\r\n%s", fbuf_used(&buf), fbuf_data(&buf));
             fbuf_destroy(&buf);
+        } else if (strcmp(key, "__index__") == 0) {
+            shardcache_storage_index_t *index = shardcache_get_index(cache);
+            fbuf_t buf = FBUF_STATIC_INITIALIZER;
+            int i;
+            fbuf_printf(&buf, "<html><body><table bgcolor='#000000' cellspacing='1' cellpadding='4'>"
+                              "<tr bgcolor='#ffffff'><td><b>Key</b></td><td><b>Value size</b></td></tr>");
+            for (i = 0; i < index->size; i++) {
+                size_t klen = index->items[i].klen;
+                char keystr[klen+1];
+                memcpy(keystr, index->items[i].key, klen);
+                keystr[klen] = 0;
+                fbuf_printf(&buf, "<tr bgcolor='#ffffff'><td>%s</td><td>(%d)</td></tr>", keystr, index->items[i].vlen);
+            }
+            fbuf_printf(&buf, "</table></body></html>");
+
+            mg_printf(conn, "HTTP/1.0 200 OK\r\n"
+                            "Content-Type: text/html\r\n"
+                            "Content-length: %d\r\n"
+                            "Server: shardcached\r\n"
+                            "Connection: Close\r\n\r\n%s", fbuf_used(&buf), fbuf_data(&buf));
+
+            fbuf_destroy(&buf);
+            shardcache_free_index(index);
         } else {
             size_t vlen = 0;
             void *value = shardcache_get(cache, key, strlen(key), &vlen);

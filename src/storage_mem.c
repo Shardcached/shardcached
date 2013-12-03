@@ -55,11 +55,48 @@ static int st_remove(void *key, size_t len, void *priv) {
     return 0;
 }
 
+typedef struct {
+    shardcache_storage_index_item_t *index;
+    size_t size;
+    size_t offset;
+} st_pair_iterator_arg_t;
+
+static size_t st_count(void *priv)
+{
+    hashtable_t *storage = (hashtable_t *)priv;
+    return ht_count(storage);
+}
+
+static int st_pair_iterator(hashtable_t *table, void *key, size_t klen, void *value, size_t vlen, void *priv)
+{
+    st_pair_iterator_arg_t *arg = (st_pair_iterator_arg_t *)priv;
+    if (arg->offset < arg->size) {
+        shardcache_storage_index_item_t *index_item = &arg->index[arg->offset++];
+        index_item->key = malloc(klen);
+        memcpy(index_item->key, key, klen);
+        index_item->klen = klen;
+        stored_item_t *item = (stored_item_t *)value;
+        index_item->vlen = item->size;
+        return 1;
+    }
+    return 0;
+}
+
+static size_t st_index(shardcache_storage_index_item_t *index, size_t isize, void *priv)
+{
+    hashtable_t *storage = (hashtable_t *)priv;
+    st_pair_iterator_arg_t arg = { index, isize, 0 };
+    ht_foreach_pair(storage, st_pair_iterator, &arg);
+    return arg.offset;
+}
+
 shardcache_storage_t *storage_mem_create(const char **options) {
     shardcache_storage_t *st = calloc(1, sizeof(shardcache_storage_t));
-    st->fetch_item      = st_fetch;
-    st->store_item      = st_store;
-    st->remove_item     = st_remove;
+    st->fetch  = st_fetch;
+    st->store  = st_store;
+    st->remove = st_remove;
+    st->index  = st_index;
+    st->count  = st_count;
 
     int size = 1024;
     int maxsize = 1 << 20;

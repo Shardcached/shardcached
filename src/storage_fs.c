@@ -8,11 +8,14 @@
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <hashtable.h>
+#include <dirent.h>
 #include "storage_fs.h"
 
 typedef struct {
     char *path;
     char *tmp;
+    hashtable_t *index;
 } storage_fs_t;
 
 static char *st_fs_filename(char *basepath, void *key, size_t klen, char **intermediate_path)
@@ -147,10 +150,14 @@ static int st_store(void *key, size_t klen, void *value, size_t vlen, void *priv
     free(tmp_intermediate);
     if (intermediate_dir)
         free(intermediate_dir);
+    size_t *sizep = malloc(sizeof(size_t));
+    *sizep = vlen;
+    ht_set(storage->index, key, klen, sizep, sizeof(size_t), NULL, NULL);
     return ret;
 }
 
-static int st_remove(void *key, size_t klen, void *priv) {
+static int st_remove(void *key, size_t klen, void *priv)
+{
     storage_fs_t *storage = (storage_fs_t *)priv;
     char *intermediate_dir = NULL;
     char *fullpath = st_fs_filename(storage->path, key, klen, &intermediate_dir);
@@ -158,14 +165,107 @@ static int st_remove(void *key, size_t klen, void *priv) {
     rmdir(intermediate_dir);
     free(fullpath);
     free(intermediate_dir);
+    ht_delete(storage->index, key, klen, NULL, NULL);
     return ret;
 }
 
-shardcache_storage_t *storage_fs_create(const char **options) {
+static size_t st_count(void *priv)
+{
+    storage_fs_t *storage = (storage_fs_t *)priv;
+    return ht_count(storage->index);
+}
+
+typedef struct {
+    shardcache_storage_index_item_t *index;
+    size_t size;
+    size_t offset;
+} st_pair_iterator_arg_t;
+
+static int st_pair_iterator(hashtable_t *table, void *key, size_t klen, void *value, size_t vlen, void *priv)
+{
+    st_pair_iterator_arg_t *arg = (st_pair_iterator_arg_t *)priv;
+    if (arg->offset < arg->size) {
+        shardcache_storage_index_item_t *index_item = &arg->index[arg->offset++];
+        index_item->key = malloc(klen);
+        memcpy(index_item->key, key, klen);
+        size_t *size = (size_t *)value;
+        index_item->klen = klen;
+        index_item->vlen = *size;
+        return 1;
+    }
+    return 0;
+}
+
+static size_t st_index(shardcache_storage_index_item_t *index, size_t isize, void *priv)
+{
+    storage_fs_t *storage = (storage_fs_t *)priv;
+    st_pair_iterator_arg_t arg = { index, isize, 0 };
+    ht_foreach_pair(storage->index, st_pair_iterator, &arg);
+    return arg.offset;
+}
+
+
+static void storage_fs_walk_and_fill_index(char *path, hashtable_t *index)
+{
+    DIR *dirp = opendir(path);
+    if (dirp) {
+        struct dirent *dirent = readdir(dirp);
+        while(dirent) {
+            if (dirent->d_name[0] == '.') {
+                dirent = readdir(dirp);
+                continue;
+            }
+
+            size_t fpath_size = strlen(path) + dirent->d_reclen + 3;
+            char *fpath = malloc(fpath_size);
+            snprintf(fpath, fpath_size, "%s/%s", path, dirent->d_name);
+
+            switch (dirent->d_type) {
+
+                case DT_DIR:
+                {
+                    storage_fs_walk_and_fill_index(fpath, index);
+                    break;
+                }
+                case DT_REG:
+                {
+                    size_t keylen = dirent->d_reclen/2;
+                    char *keyname = malloc(keylen);
+                    char *p = keyname;
+                    int i;
+                    for (i = 0; i < dirent->d_reclen; i+=2) {
+                        sscanf(&dirent->d_name[i], "%02x", (int *)p++);
+                    }
+                    struct stat st; 
+                    if (stat(fpath, &st) != 0) {
+                        // TODO - Error messages
+                    }
+                    size_t *sizep = malloc(sizeof(size_t));
+                    *sizep = st.st_size;
+                    ht_set(index, keyname, keylen, sizep, sizeof(size_t), NULL, NULL);
+                    free(keyname);
+                    break;
+                }
+                default:
+                    break;
+            }
+            free(fpath);
+            dirent = readdir(dirp);
+        }
+        closedir(dirp);
+    } else {
+        fprintf(stderr, "Can't open dir %s : %s\n", path, strerror(errno));
+    }
+}
+
+shardcache_storage_t *storage_fs_create(const char **options)
+{
     shardcache_storage_t *st = calloc(1, sizeof(shardcache_storage_t));
-    st->fetch_item      = st_fetch;
-    st->store_item      = st_store;
-    st->remove_item     = st_remove;
+    st->fetch  = st_fetch;
+    st->store  = st_store;
+    st->remove = st_remove;
+    st->index  = st_index;
+    st->count  = st_count;
 
     storage_fs_t *storage = NULL;
     char *storage_path = NULL;
@@ -223,15 +323,19 @@ shardcache_storage_t *storage_fs_create(const char **options) {
     } else {
         // TODO - Error Messages
     }
-    st->priv = storage;
+    storage->index = ht_create(1<<16, 0, free);
+    storage_fs_walk_and_fill_index(storage->path, storage->index);
 
+    st->priv = storage;
     return st;
 }
 
-void storage_fs_destroy(shardcache_storage_t *st) {
+void storage_fs_destroy(shardcache_storage_t *st)
+{
     storage_fs_t *storage = (storage_fs_t *)st->priv;
     free(storage->path);
     free(storage->tmp);
+    ht_destroy(storage->index);
     free(storage);
     free(st);
 }

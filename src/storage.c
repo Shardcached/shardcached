@@ -48,7 +48,7 @@ shcd_storage_init(char *storage_type, char *options_string, char *plugins_dir)
         st->destroyer = storage_fs_destroy;
     } else {
         char libname[1024];
-        snprintf(libname, sizeof(libname), "%s/%s.so", plugins_dir, storage_type);
+        snprintf(libname, sizeof(libname), "%s/%s.storage", plugins_dir, storage_type);
         st->handle = dlopen(libname, RTLD_NOW);
         if (!st->handle) {
             ERROR("Unknown storage type: %s (%s)\n", storage_type, dlerror());
