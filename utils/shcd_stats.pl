@@ -12,8 +12,10 @@ my $hosts = shift @ARGV || $ENV{SHCD_HOSTS};
 my @hosts_array = split(',', $hosts);
 
 foreach my $host (@hosts_array) {
+    $host = "http://$host" if ($host !~ /^http:\/\//i);
+    $host =~ s/\/+$//;
     print "** Counters from host $host\n\n";
-    my $request = HTTP::Request->new("GET", "http://$host/__stats__?nohtml=1");
+    my $request = HTTP::Request->new("GET", "$host/__stats__?nohtml=1");
     my $ua = LWP::UserAgent->new;
     my $response = $ua->request($request);
     my $data = $response->content;

@@ -17,11 +17,14 @@ die "Usage: $0 </path/to/input_file> <key> [<hosts>]" unless($key && $input_file
 my @hosts_array = split(',', $hosts);
 my $host = $hosts_array[int(rand(scalar(@hosts_array)))];
 
+$host = "http://$host" if ($host !~ /^http:\/\//i);
+$host =~ s/\/+$//;
+
 print "Using host $host : ";
  
 my $data = read_file($input_file);
 my $req_headers = HTTP::Headers->new( 'Content-Length' => length($data) );
-my $request = HTTP::Request->new("PUT", "http://$host/$key", $req_headers, $data);
+my $request = HTTP::Request->new("PUT", "$host/$key", $req_headers, $data);
 
 my $ua = LWP::UserAgent->new;
 my $response = $ua->request($request);

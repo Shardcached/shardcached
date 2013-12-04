@@ -19,9 +19,12 @@ die "Usage: $0 <key> </path/to/output_file> [<hosts>]" unless($key && $output_fi
 my @hosts_array = split(',', $hosts);
 my $host = $hosts_array[int(rand(scalar(@hosts_array)))];
 
+$host = "http://$host" if ($host !~ /^http:\/\//i);
+$host =~ s/\/+$//;
+
 print "Using host $host : ";
  
-my $request = HTTP::Request->new("GET", "http://$host/$key");
+my $request = HTTP::Request->new("GET", "$host/$key");
 
 my $ua = LWP::UserAgent->new;
 my $response = $ua->request($request);

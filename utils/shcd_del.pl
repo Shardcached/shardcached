@@ -19,9 +19,12 @@ my $hosts = shift @ARGV || $ENV{SHCD_HOSTS};
 my @hosts_array = split(',', $hosts);
 my $host = $hosts_array[int(rand(scalar(@hosts_array)))];
 
+$host = "http://$host" if ($host !~ /^http:\/\//i);
+$host =~ s/\/+$//;
+
 print "Using host $host : ";
 
-my $request = HTTP::Request->new("DELETE", "http://$host/$key");
+my $request = HTTP::Request->new("DELETE", "$host/$key");
 
 my $ua = LWP::UserAgent->new;
 my $response = $ua->request($request);
