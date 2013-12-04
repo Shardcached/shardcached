@@ -35,7 +35,7 @@
 #define SHARDCACHED_SECRET_DEFAULT "default"
 #define SHARDCACHED_STORAGE_TYPE_DEFAULT "mem"
 #define SHARDCACHED_STORAGE_OPTIONS_DEFAULT "initial_table_size=1024,max_table_size=1000000"
-#define SHARDCACHED_STATS_INTERVAL_DEFAULT 60
+#define SHARDCACHED_STATS_INTERVAL_DEFAULT 0
 #define SHARDCACHED_NUM_WORKERS_DEFAULT 50
 
 #define SHARDCACHED_USERAGENT_SIZE_THRESHOLD 16
@@ -110,16 +110,21 @@ static void shardcached_do_nothing(int sig)
     DEBUG1("Signal %d received ... doing nothing\n", sig);
 }
 
+static int shcd_active_requests = 0;
+
 static int shardcached_request_handler(struct mg_connection *conn) {
 
     struct mg_request_info *request_info = mg_get_request_info(conn);
     shardcache_t *cache = request_info->user_data;
     char *key = (char *)request_info->uri;
 
+    __sync_add_and_fetch(&shcd_active_requests, 1);
+
     if (basepath) {
         if (strncmp(key, basepath, strlen(basepath)) != 0) {
             ERROR("Bad request uri : %s", request_info->uri);
             mg_printf(conn, "HTTP/1.0 404 Not Found\r\n\r\nNot Found");
+            __sync_sub_and_fetch(&shcd_active_requests, 1);
             return 1;
         }
         key += strlen(basepath);
@@ -128,6 +133,7 @@ static int shardcached_request_handler(struct mg_connection *conn) {
         key++;
     if (*key == 0) {
         mg_printf(conn, "HTTP/1.0 404 Not Found\r\n\r\nNot Found");
+        __sync_sub_and_fetch(&shcd_active_requests, 1);
         return 1;
     }
 
@@ -137,7 +143,9 @@ static int shardcached_request_handler(struct mg_connection *conn) {
 
 
             fbuf_printf(&buf, "<html><body><table bgcolor='#000000' cellspacing='1' cellpadding='4'>"
-                              "<tr bgcolor='#ffffff'><td><b>Counter</b></td><td><b>Value</b></td></tr>");
+                              "<tr bgcolor='#ffffff'><td><b>Counter</b></td><td><b>Value</b></td></tr>"
+                              "<tr bgcolor='#ffffff'><td>active_http_requests</td><td>%d</td>",
+                              __sync_fetch_and_add(&shcd_active_requests, 0));
 
 
             shardcache_counter_t *counters;
@@ -208,6 +216,7 @@ static int shardcached_request_handler(struct mg_connection *conn) {
         
         if (!clen) {
             mg_printf(conn, "HTTP/1.0 400 Bad Request\r\n\r\nNo Content-Length");
+            __sync_sub_and_fetch(&shcd_active_requests, 1);
             return 1;
         }
 
@@ -232,6 +241,7 @@ static int shardcached_request_handler(struct mg_connection *conn) {
 
         mg_printf(conn, "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n");
     }
+    __sync_sub_and_fetch(&shcd_active_requests, 1);
     return 1;
 }
 
@@ -264,9 +274,7 @@ static void shardcached_run(shardcache_t *cache, uint32_t stats_interval)
             fbuf_t out = FBUF_STATIC_INITIALIZER;
             for (i = 0; i < ncounters; i++) {
                 uint32_t *prev = ht_get(prevcounters, counters[i].name, strlen(counters[i].name), NULL);
-                if (i > 0)
-                    fbuf_printf(&out, ", ");
-                fbuf_printf(&out, "%s => %u", counters[i].name, counters[i].value - (prev ? *prev : 0));
+                fbuf_printf(&out, "%s: %u\n", counters[i].name, counters[i].value - (prev ? *prev : 0));
                 if (prev) {
                     *prev = counters[i].value;
                 } else {
