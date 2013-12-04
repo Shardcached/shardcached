@@ -37,6 +37,8 @@
 #define SHARDCACHED_STORAGE_OPTIONS_DEFAULT "initial_table_size=1024,max_table_size=1000000"
 #define SHARDCACHED_STATS_INTERVAL_DEFAULT 0
 #define SHARDCACHED_NUM_WORKERS_DEFAULT 50
+#define SHARDCACHED_ACCESS_LOG_DEFAULT "./shardcached_access.log"
+#define SHARDCACHED_ERROR_LOG_DEFAULT "./shardcached_error.log"
 
 #define SHARDCACHED_USERAGENT_SIZE_THRESHOLD 16
 #define SHARDCACHED_MAX_SHARDS 1024
@@ -65,6 +67,8 @@ static void usage(char *progname, char *msg, ...)
 
     printf("Usage: %s [OPTION]...\n"
            "Possible options:\n"
+           "    -a <access_log_file>  the path where to store the access_log file (detaults to '%s')\n"
+           "    -e <error_log_file>   the path where to store the error_log file (defaults to '%s')\n"
            "    -d <plugins_path>     the path where to look for storage plugins (defaults to the CWD of the process)\n"
            "    -f                    run in foreground\n"
            "    -i <interval>         change the time interval (in seconds) used to report internal stats via syslog (defaults to '%d')\n"
@@ -88,6 +92,8 @@ static void usage(char *progname, char *msg, ...)
            "              - storage_path=<path>          the parh where to store the keys/values on the filesystem\n"
            "              - tmp_path=<path>              the path to a temporary directory to use while new data is being uploaded\n"
            , progname
+           , SHARDCACHED_ACCESS_LOG_DEFAULT
+           , SHARDCACHED_ERROR_LOG_DEFAULT
            , SHARDCACHED_STATS_INTERVAL_DEFAULT
            , SHARDCACHED_SECRET_DEFAULT
            , SHARDCACHED_STORAGE_TYPE_DEFAULT
@@ -333,10 +339,14 @@ int main(int argc, char **argv)
     uint32_t stats_interval = SHARDCACHED_STATS_INTERVAL_DEFAULT;
     char *plugins_dir = "./";
     int num_workers = SHARDCACHED_NUM_WORKERS_DEFAULT;
+    char *access_log_file = SHARDCACHED_ACCESS_LOG_DEFAULT;
+    char *error_log_file = SHARDCACHED_ERROR_LOG_DEFAULT;
     
     strcpy(options_string, SHARDCACHED_STORAGE_OPTIONS_DEFAULT);
 
     static struct option long_options[] = {
+        {"access_log", 2, 0, 'a'},
+        {"error_log", 2, 0, 'e'},
         {"base", 2, 0, 'b'},
         {"plugins_directory", 2, 0, 'd'},
         {"foreground", 0, 0, 'f'},
@@ -353,11 +363,14 @@ int main(int argc, char **argv)
     };
 
     char c;
-    while ((c = getopt_long (argc, argv, "b:d:fhi:l:p:s:t:o:vw:?", long_options, &option_index))) {
+    while ((c = getopt_long (argc, argv, "a:b:d:fg:hi:l:p:s:t:o:vw:?", long_options, &option_index))) {
         if (c == -1) {
             break;
         }
         switch (c) {
+            case 'a':
+                access_log_file = optarg;
+                break;
             case 'b':
                 basepath = optarg;
                 // skip leading '/'s
@@ -366,6 +379,9 @@ int main(int argc, char **argv)
                 break;
             case 'd':
                 plugins_dir = optarg;
+                break;
+            case 'e':
+                error_log_file = optarg;
                 break;
             case 'f':
                 foreground = 1;
@@ -399,6 +415,7 @@ int main(int argc, char **argv)
                 usage(argv[0], NULL);
                 break;
             default:
+                usage(argv[0], "Unknown option : '-%c'", c);
                 break;
         }
     }
@@ -477,7 +494,11 @@ int main(int argc, char **argv)
     if (strncmp(listen_address, "*:", 2) == 0)
         listen_address += 2;
 
-    const char *mongoose_options[] = { "listening_ports", listen_address, NULL };
+    const char *mongoose_options[] = { "listening_ports", listen_address,
+                                       "access_log_file", access_log_file,
+                                       "error_log_file", error_log_file,
+                                        NULL };
+
     // let's start mongoose
     struct mg_context *ctx = mg_start(&shardcached_callbacks, cache, mongoose_options);
     if (ctx) {
