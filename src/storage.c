@@ -48,7 +48,8 @@ shcd_storage_init(char *storage_type, char *options_string, char *plugins_dir)
         st->destroyer = storage_fs_destroy;
     } else {
         char libname[1024];
-        snprintf(libname, sizeof(libname), "%s/%s.storage", plugins_dir, storage_type);
+        snprintf(libname, sizeof(libname), "%s/%s.storage",
+                 plugins_dir, storage_type);
         st->handle = dlopen(libname, RTLD_NOW);
         if (!st->handle) {
             ERROR("Unknown storage type: %s (%s)\n", storage_type, dlerror());
@@ -56,7 +57,8 @@ shcd_storage_init(char *storage_type, char *options_string, char *plugins_dir)
             return NULL;
         }
         char *error = NULL;
-        shardcache_storage_t *(*create)(const char **options) = dlsym(st->handle, "storage_create");
+        shardcache_storage_t *(*create)(const char **options);
+        create = dlsym(st->handle, "storage_create");
         if (!create || ((error = dlerror()) != NULL))  {
             fprintf(stderr, "%s\n", error);
             dlclose(st->handle);
@@ -64,7 +66,8 @@ shcd_storage_init(char *storage_type, char *options_string, char *plugins_dir)
             return NULL;
         }
 
-        void (*destroy)(shardcache_storage_t *) = dlsym(st->handle, "storage_destroy");
+        void (*destroy)(shardcache_storage_t *);
+        destroy = dlsym(st->handle, "storage_destroy");
         if (!destroy || ((error = dlerror()) != NULL))  {
             fprintf(stderr, "%s\n", error);
             dlclose(st->handle);

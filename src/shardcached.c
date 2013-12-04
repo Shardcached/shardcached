@@ -34,7 +34,7 @@
 #define SHARDCACHED_LOGLEVEL_DEFAULT 0
 #define SHARDCACHED_SECRET_DEFAULT "default"
 #define SHARDCACHED_STORAGE_TYPE_DEFAULT "mem"
-#define SHARDCACHED_STORAGE_OPTIONS_DEFAULT "initial_table_size=1024,max_table_size=1000000"
+#define SHARDCACHED_STORAGE_OPTIONS_DEFAULT ""
 #define SHARDCACHED_STATS_INTERVAL_DEFAULT 0
 #define SHARDCACHED_NUM_WORKERS_DEFAULT 50
 #define SHARDCACHED_PLUGINS_DIR_DEFAULT "./"
@@ -120,7 +120,8 @@ static void shardcached_do_nothing(int sig)
 
 static int shcd_active_requests = 0;
 
-static int shardcached_request_handler(struct mg_connection *conn) {
+static int shardcached_request_handler(struct mg_connection *conn)
+{
 
     struct mg_request_info *request_info = mg_get_request_info(conn);
     shardcache_t *cache = request_info->user_data;
@@ -147,18 +148,30 @@ static int shardcached_request_handler(struct mg_connection *conn) {
 
     if (strncasecmp(request_info->request_method, "GET", 3) == 0) {
         if (strcmp(key, "__stats__") == 0) {
-            int do_html = (!request_info->query_string || !strstr(request_info->query_string, "nohtml=1"));
+            int do_html = (!request_info->query_string ||
+                           !strstr(request_info->query_string, "nohtml=1"));
 
             fbuf_t buf = FBUF_STATIC_INITIALIZER;
 
 
             if (do_html) {
-                fbuf_printf(&buf, "<html><body><table bgcolor='#000000' cellspacing='1' cellpadding='4'>"
-                                  "<tr bgcolor='#ffffff'><td><b>Counter</b></td><td><b>Value</b></td></tr>"
-                                  "<tr bgcolor='#ffffff'><td>active_http_requests</td><td>%d</td>",
-                                  __sync_fetch_and_add(&shcd_active_requests, 0));
+                fbuf_printf(&buf,
+                            "<html><body>"
+                            "<table bgcolor='#000000' "
+                            "cellspacing='1' "
+                            "cellpadding='4'>"
+                            "<tr bgcolor='#ffffff'>"
+                            "<td><b>Counter</b></td>"
+                            "<td><b>Value</b></td>"
+                            "</tr>"
+                            "<tr bgcolor='#ffffff'>"
+                            "<td>active_http_requests</td>"
+                            "<td>%d</td>",
+                              __sync_fetch_and_add(&shcd_active_requests, 0));
             } else {
-                fbuf_printf(&buf, "active_http_requests;%d\r\n", __sync_fetch_and_add(&shcd_active_requests, 0));
+                fbuf_printf(&buf,
+                            "active_http_requests;%d\r\n",
+                            __sync_fetch_and_add(&shcd_active_requests, 0));
             }
 
 
@@ -168,9 +181,15 @@ static int shardcached_request_handler(struct mg_connection *conn) {
 
             for (i = 0; i < ncounters; i++) {
                 if (do_html)
-                    fbuf_printf(&buf, "<tr bgcolor='#ffffff'><td>%s</td><td>%u</td>", counters[i].name, counters[i].value);
+                    fbuf_printf(&buf,
+                                "<tr bgcolor='#ffffff'><td>%s</td><td>%u</td>",
+                                counters[i].name,
+                                counters[i].value);
                 else
-                    fbuf_printf(&buf, "%s;%u\r\n", counters[i].name, counters[i].value);
+                    fbuf_printf(&buf,
+                                "%s;%u\r\n",
+                                counters[i].name,
+                                counters[i].value);
             }
             if (do_html)
                 fbuf_printf(&buf, "</table></body></html>");
@@ -181,18 +200,28 @@ static int shardcached_request_handler(struct mg_connection *conn) {
                             "Content-length: %d\r\n"
                             "Server: shardcached\r\n"
                             "Connection: Close\r\n\r\n%s",
-                            do_html ? "html" : "plain", fbuf_used(&buf), fbuf_data(&buf));
+                            do_html ? "html" : "plain",
+                            fbuf_used(&buf),
+                            fbuf_data(&buf));
             fbuf_destroy(&buf);
 
         } else if (strcmp(key, "__index__") == 0) {
             shardcache_storage_index_t *index = shardcache_get_index(cache);
             fbuf_t buf = FBUF_STATIC_INITIALIZER;
             int i;
-            int do_html = (!request_info->query_string || !strstr(request_info->query_string, "nohtml=1"));
+            int do_html = (!request_info->query_string ||
+                           !strstr(request_info->query_string, "nohtml=1"));
 
             if (do_html) {
-                fbuf_printf(&buf, "<html><body><table bgcolor='#000000' cellspacing='1' cellpadding='4'>"
-                                  "<tr bgcolor='#ffffff'><td><b>Key</b></td><td><b>Value size</b></td></tr>");
+                fbuf_printf(&buf,
+                            "<html><body>"
+                            "<table bgcolor='#000000' "
+                            "cellspacing='1' "
+                            "cellpadding='4'>"
+                            "<tr bgcolor='#ffffff'>"
+                            "<td><b>Key</b></td>"
+                            "<td><b>Value size</b></td>"
+                            "</tr>");
             }
             for (i = 0; i < index->size; i++) {
                 size_t klen = index->items[i].klen;
@@ -200,9 +229,16 @@ static int shardcached_request_handler(struct mg_connection *conn) {
                 memcpy(keystr, index->items[i].key, klen);
                 keystr[klen] = 0;
                 if (do_html)
-                    fbuf_printf(&buf, "<tr bgcolor='#ffffff'><td>%s</td><td>(%d)</td></tr>", keystr, index->items[i].vlen);
+                    fbuf_printf(&buf,
+                                "<tr bgcolor='#ffffff'><td>%s</td>"
+                                "<td>(%d)</td></tr>",
+                                keystr,
+                                index->items[i].vlen);
                 else
-                    fbuf_printf(&buf, "%s;%d\r\n", keystr, index->items[i].vlen);
+                    fbuf_printf(&buf,
+                                "%s;%d\r\n",
+                                keystr,
+                                index->items[i].vlen);
             }
 
             if (do_html)
@@ -213,7 +249,9 @@ static int shardcached_request_handler(struct mg_connection *conn) {
                             "Content-length: %d\r\n"
                             "Server: shardcached\r\n"
                             "Connection: Close\r\n\r\n%s",
-                            do_html ? "html" : "plain", fbuf_used(&buf), fbuf_data(&buf));
+                            do_html ? "html" : "plain",
+                            fbuf_used(&buf),
+                            fbuf_data(&buf));
 
             fbuf_destroy(&buf);
             shardcache_free_index(index);
@@ -245,7 +283,7 @@ static int shardcached_request_handler(struct mg_connection *conn) {
         }
         
         if (!clen) {
-            mg_printf(conn, "HTTP/1.0 400 Bad Request\r\n\r\nNo Content-Length");
+            mg_printf(conn, "HTTP/1.0 400 Bad Request\r\n\r\n");
             __sync_sub_and_fetch(&shcd_active_requests, 1);
             return 1;
         }
@@ -275,9 +313,6 @@ static int shardcached_request_handler(struct mg_connection *conn) {
     return 1;
 }
 
-void shardcached_end_request_handler(const struct mg_connection *conn, int reply_status_code) {
-}
-
 static void shardcached_run(shardcache_t *cache, uint32_t stats_interval)
 {
     if (stats_interval) {
@@ -303,8 +338,17 @@ static void shardcached_run(shardcache_t *cache, uint32_t stats_interval)
             int i;
             fbuf_t out = FBUF_STATIC_INITIALIZER;
             for (i = 0; i < ncounters; i++) {
-                uint32_t *prev = ht_get(prevcounters, counters[i].name, strlen(counters[i].name), NULL);
-                fbuf_printf(&out, "%s: %u\n", counters[i].name, counters[i].value - (prev ? *prev : 0));
+
+                uint32_t *prev = ht_get(prevcounters,
+                                        counters[i].name,
+                                        strlen(counters[i].name),
+                                        NULL);
+
+                fbuf_printf(&out,
+                            "%s: %u\n",
+                            counters[i].name,
+                            counters[i].value - (prev ? *prev : 0));
+
                 if (prev) {
                     *prev = counters[i].value;
                 } else {
@@ -365,7 +409,9 @@ int main(int argc, char **argv)
     };
 
     char c;
-    while ((c = getopt_long (argc, argv, "a:b:d:fg:hi:l:p:s:t:o:vw:?", long_options, &option_index))) {
+    while ((c = getopt_long (argc, argv, "a:b:d:fg:hi:l:p:s:t:o:vw:?",
+                             long_options, &option_index)))
+    {
         if (c == -1) {
             break;
         }
@@ -474,14 +520,18 @@ int main(int argc, char **argv)
 
     log_init("shardcached", loglevel);
 
-    shcd_storage_t *st = shcd_storage_init(storage_type, options_string, plugins_dir);
+    shcd_storage_t *st = shcd_storage_init(storage_type,
+                                           options_string,
+                                           plugins_dir);
     if (!st) {
         ERROR("Can't initialize the storage subsystem");
         exit(-1);
     }
 
     DEBUG("Starting the shardcache engine with %d workers", num_workers);
-    shardcache_t *cache = shardcache_create(me, shard_names, cnt, shcd_storage_get(st), secret, num_workers);
+    shardcache_t *cache = shardcache_create(me, shard_names, cnt,
+            shcd_storage_get(st), secret, num_workers);
+
     if (!cache) {
         ERROR("Can't initialize the shardcache engine");
         exit(-1);
@@ -489,8 +539,7 @@ int main(int argc, char **argv)
 
     // initialize the mongoose callbacks descriptor
     struct mg_callbacks shardcached_callbacks = {
-        .begin_request = shardcached_request_handler,
-        .end_request = shardcached_end_request_handler,
+        .begin_request = shardcached_request_handler
     };
 
     if (strncmp(listen_address, "*:", 2) == 0)
@@ -502,7 +551,9 @@ int main(int argc, char **argv)
                                         NULL };
 
     // let's start mongoose
-    struct mg_context *ctx = mg_start(&shardcached_callbacks, cache, mongoose_options);
+    struct mg_context *ctx = mg_start(&shardcached_callbacks,
+                                      cache,
+                                      mongoose_options);
     if (ctx) {
         shardcached_run(cache, stats_interval);
     } else {

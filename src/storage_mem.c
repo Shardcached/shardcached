@@ -9,14 +9,18 @@ typedef struct {
     size_t size;
 } stored_item_t;
 
-static void free_item_cb(void *ptr) {
+static void
+free_item_cb(void *ptr)
+{
     stored_item_t *item = (stored_item_t *)ptr;
     if (item->value)
         free(item->value);
     free(item);
 }
 
-static void *copy_item_cb(void *ptr, size_t len) {
+static void *
+copy_item_cb(void *ptr, size_t len)
+{
     stored_item_t *item = (stored_item_t *)ptr;
     stored_item_t *copy = malloc(sizeof(stored_item_t));
     copy->value = malloc(item->size);
@@ -25,10 +29,15 @@ static void *copy_item_cb(void *ptr, size_t len) {
     return copy;
 }
 
-static void *st_fetch(void *key, size_t len, size_t *vlen, void *priv)
+static void *
+st_fetch(void *key, size_t len, size_t *vlen, void *priv)
 {
     hashtable_t *storage = (hashtable_t *)priv;
-    stored_item_t *item =  ht_get_deep_copy(storage, key, len, NULL, copy_item_cb);
+    stored_item_t *item =  ht_get_deep_copy(storage,
+                                            key,
+                                            len,
+                                            NULL,
+                                            copy_item_cb);
     void *v = NULL;
     if (item) {
         v = item->value;
@@ -38,7 +47,8 @@ static void *st_fetch(void *key, size_t len, size_t *vlen, void *priv)
     return v;
 }
 
-static int st_store(void *key, size_t len, void *value, size_t vlen, void *priv)
+static int
+st_store(void *key, size_t len, void *value, size_t vlen, void *priv)
 {
     hashtable_t *storage = (hashtable_t *)priv;
     stored_item_t *new_item = malloc(sizeof(stored_item_t));
@@ -49,7 +59,9 @@ static int st_store(void *key, size_t len, void *value, size_t vlen, void *priv)
     return 0;
 }
 
-static int st_remove(void *key, size_t len, void *priv) {
+static int
+st_remove(void *key, size_t len, void *priv)
+{
     hashtable_t *storage = (hashtable_t *)priv;
     ht_delete(storage, key, len, NULL, NULL);
     return 0;
@@ -61,17 +73,26 @@ typedef struct {
     size_t offset;
 } st_pair_iterator_arg_t;
 
-static size_t st_count(void *priv)
+static size_t
+st_count(void *priv)
 {
     hashtable_t *storage = (hashtable_t *)priv;
     return ht_count(storage);
 }
 
-static int st_pair_iterator(hashtable_t *table, void *key, size_t klen, void *value, size_t vlen, void *priv)
+static int
+st_pair_iterator(hashtable_t *table,
+                 void *       key,
+                 size_t       klen,
+                 void *       value,
+                 size_t       vlen,
+                 void *       priv)
 {
     st_pair_iterator_arg_t *arg = (st_pair_iterator_arg_t *)priv;
     if (arg->offset < arg->size) {
-        shardcache_storage_index_item_t *index_item = &arg->index[arg->offset++];
+        shardcache_storage_index_item_t *index_item;
+        
+        index_item = &arg->index[arg->offset++];
         index_item->key = malloc(klen);
         memcpy(index_item->key, key, klen);
         index_item->klen = klen;
@@ -82,7 +103,8 @@ static int st_pair_iterator(hashtable_t *table, void *key, size_t klen, void *va
     return 0;
 }
 
-static size_t st_index(shardcache_storage_index_item_t *index, size_t isize, void *priv)
+static size_t
+st_index(shardcache_storage_index_item_t *index, size_t isize, void *priv)
 {
     hashtable_t *storage = (hashtable_t *)priv;
     st_pair_iterator_arg_t arg = { index, isize, 0 };
@@ -90,7 +112,9 @@ static size_t st_index(shardcache_storage_index_item_t *index, size_t isize, voi
     return arg.offset;
 }
 
-shardcache_storage_t *storage_mem_create(const char **options) {
+shardcache_storage_t *
+storage_mem_create(const char **options)
+{
     shardcache_storage_t *st = calloc(1, sizeof(shardcache_storage_t));
     st->fetch  = st_fetch;
     st->store  = st_store;
@@ -127,7 +151,9 @@ shardcache_storage_t *storage_mem_create(const char **options) {
     return st;
 }
 
-void storage_mem_destroy(shardcache_storage_t *st) {
+void
+storage_mem_destroy(shardcache_storage_t *st)
+{
     hashtable_t *storage = (hashtable_t *)st->priv;
     ht_destroy(storage);
     free(st);

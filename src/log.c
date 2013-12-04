@@ -2,8 +2,12 @@
 
 static unsigned int __loglevel = 0;
 
-unsigned long
-byte_escape(char ch, char esc, char *buffer, unsigned long len, char **dest, unsigned long *newlen)
+unsigned long byte_escape(char ch,
+                          char esc,
+                          char *buffer,
+                          unsigned long len,
+                          char **dest,
+                          unsigned long *newlen)
 {
     char *newbuf;
     unsigned long buflen;
@@ -48,7 +52,8 @@ byte_escape(char ch, char esc, char *buffer, unsigned long len, char **dest, uns
     return cnt;
 }
 
-char *hex_escape(const char *buf, int len) {
+char *hex_escape(const char *buf, int len)
+{
     int i;
     static char *str = NULL;
 

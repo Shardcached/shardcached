@@ -18,7 +18,8 @@ typedef struct {
     hashtable_t *index;
 } storage_fs_t;
 
-static char *st_fs_filename(char *basepath, void *key, size_t klen, char **intermediate_path)
+static char *
+st_fs_filename(char *basepath, void *key, size_t klen, char **intermediate_path)
 {
     int i;
     struct stat st; 
@@ -71,7 +72,8 @@ static char *st_fs_filename(char *basepath, void *key, size_t klen, char **inter
     return fullpath;
 }
 
-static void *st_fetch(void *key, size_t klen, size_t *vlen, void *priv)
+static void *
+st_fetch(void *key, size_t klen, size_t *vlen, void *priv)
 {
     storage_fs_t *storage = (storage_fs_t *)priv;
     char *fullpath = st_fs_filename(storage->path, key, klen, NULL);
@@ -102,7 +104,8 @@ static void *st_fetch(void *key, size_t klen, size_t *vlen, void *priv)
     return NULL;
 }
 
-static int st_store(void *key, size_t klen, void *value, size_t vlen, void *priv)
+static int
+st_store(void *key, size_t klen, void *value, size_t vlen, void *priv)
 {
     storage_fs_t *storage = (storage_fs_t *)priv;
 
@@ -128,15 +131,21 @@ static int st_store(void *key, size_t klen, void *value, size_t vlen, void *priv
         int ofx = 0;
         while (ofx != vlen) {
             int wb = write(fd, value+ofx, vlen - ofx);
-            if (wb > 0) { 
+            if (wb > 0)
+            { 
                 ofx += wb;
-            } else if (wb == 0 || (wb == -1 && errno != EINTR && errno != EAGAIN)) {
+            } else if (wb == 0 ||
+                      (wb == -1 && errno != EINTR && errno != EAGAIN))
+            {
                 // TODO - Error messages
                 break;
             }
         }
         if (ofx == vlen) {
-            char *fullpath = st_fs_filename(storage->path, key, klen, &intermediate_dir);
+            char *fullpath = st_fs_filename(storage->path,
+                                            key,
+                                            klen,
+                                            &intermediate_dir);
             ret = link(tmppath, fullpath);
             free(fullpath);
         }
@@ -156,11 +165,15 @@ static int st_store(void *key, size_t klen, void *value, size_t vlen, void *priv
     return ret;
 }
 
-static int st_remove(void *key, size_t klen, void *priv)
+static int
+st_remove(void *key, size_t klen, void *priv)
 {
     storage_fs_t *storage = (storage_fs_t *)priv;
     char *intermediate_dir = NULL;
-    char *fullpath = st_fs_filename(storage->path, key, klen, &intermediate_dir);
+    char *fullpath = st_fs_filename(storage->path,
+                                    key,
+                                    klen,
+                                    &intermediate_dir);
     int ret = unlink(fullpath); 
     rmdir(intermediate_dir);
     free(fullpath);
@@ -169,7 +182,8 @@ static int st_remove(void *key, size_t klen, void *priv)
     return ret;
 }
 
-static size_t st_count(void *priv)
+static size_t
+st_count(void *priv)
 {
     storage_fs_t *storage = (storage_fs_t *)priv;
     return ht_count(storage->index);
@@ -181,22 +195,32 @@ typedef struct {
     size_t offset;
 } st_pair_iterator_arg_t;
 
-static int st_pair_iterator(hashtable_t *table, void *key, size_t klen, void *value, size_t vlen, void *priv)
+static int
+st_pair_iterator(hashtable_t *table,
+                 void *       key,
+                 size_t       klen,
+                 void *       value,
+                 size_t       vlen,
+                 void *       priv)
 {
     st_pair_iterator_arg_t *arg = (st_pair_iterator_arg_t *)priv;
     if (arg->offset < arg->size) {
-        shardcache_storage_index_item_t *index_item = &arg->index[arg->offset++];
+        shardcache_storage_index_item_t *index_item;
+
+        index_item = &arg->index[arg->offset++];
         index_item->key = malloc(klen);
         memcpy(index_item->key, key, klen);
         size_t *size = (size_t *)value;
         index_item->klen = klen;
         index_item->vlen = *size;
+
         return 1;
     }
     return 0;
 }
 
-static size_t st_index(shardcache_storage_index_item_t *index, size_t isize, void *priv)
+static size_t
+st_index(shardcache_storage_index_item_t *index, size_t isize, void *priv)
 {
     storage_fs_t *storage = (storage_fs_t *)priv;
     st_pair_iterator_arg_t arg = { index, isize, 0 };
@@ -205,7 +229,8 @@ static size_t st_index(shardcache_storage_index_item_t *index, size_t isize, voi
 }
 
 
-static void storage_fs_walk_and_fill_index(char *path, hashtable_t *index)
+static void
+storage_fs_walk_and_fill_index(char *path, hashtable_t *index)
 {
     DIR *dirp = opendir(path);
     if (dirp) {
@@ -261,7 +286,8 @@ static void storage_fs_walk_and_fill_index(char *path, hashtable_t *index)
     }
 }
 
-shardcache_storage_t *storage_fs_create(const char **options)
+shardcache_storage_t *
+storage_fs_create(const char **options)
 {
     shardcache_storage_t *st = calloc(1, sizeof(shardcache_storage_t));
     st->fetch  = st_fetch;
@@ -333,7 +359,8 @@ shardcache_storage_t *storage_fs_create(const char **options)
     return st;
 }
 
-void storage_fs_destroy(shardcache_storage_t *st)
+void
+storage_fs_destroy(shardcache_storage_t *st)
 {
     storage_fs_t *storage = (storage_fs_t *)st->priv;
     free(storage->path);
