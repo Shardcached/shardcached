@@ -139,13 +139,19 @@ static int shardcached_request_handler(struct mg_connection *conn) {
 
     if (strncasecmp(request_info->request_method, "GET", 3) == 0) {
         if (strcmp(key, "__stats__") == 0) {
+            int do_html = (!request_info->query_string || !strstr(request_info->query_string, "nohtml=1"));
+
             fbuf_t buf = FBUF_STATIC_INITIALIZER;
 
 
-            fbuf_printf(&buf, "<html><body><table bgcolor='#000000' cellspacing='1' cellpadding='4'>"
-                              "<tr bgcolor='#ffffff'><td><b>Counter</b></td><td><b>Value</b></td></tr>"
-                              "<tr bgcolor='#ffffff'><td>active_http_requests</td><td>%d</td>",
-                              __sync_fetch_and_add(&shcd_active_requests, 0));
+            if (do_html) {
+                fbuf_printf(&buf, "<html><body><table bgcolor='#000000' cellspacing='1' cellpadding='4'>"
+                                  "<tr bgcolor='#ffffff'><td><b>Counter</b></td><td><b>Value</b></td></tr>"
+                                  "<tr bgcolor='#ffffff'><td>active_http_requests</td><td>%d</td>",
+                                  __sync_fetch_and_add(&shcd_active_requests, 0));
+            } else {
+                fbuf_printf(&buf, "active_http_requests;%d\r\n", __sync_fetch_and_add(&shcd_active_requests, 0));
+            }
 
 
             shardcache_counter_t *counters;
@@ -153,37 +159,53 @@ static int shardcached_request_handler(struct mg_connection *conn) {
             int i;
 
             for (i = 0; i < ncounters; i++) {
-                fbuf_printf(&buf, "<tr bgcolor='#ffffff'><td>%s</td><td>%u</td>", counters[i].name, counters[i].value);
+                if (do_html)
+                    fbuf_printf(&buf, "<tr bgcolor='#ffffff'><td>%s</td><td>%u</td>", counters[i].name, counters[i].value);
+                else
+                    fbuf_printf(&buf, "%s;%u\r\n", counters[i].name, counters[i].value);
             }
-            fbuf_printf(&buf, "</table></body></html>");
+            if (do_html)
+                fbuf_printf(&buf, "</table></body></html>");
             free(counters);
                  
             mg_printf(conn, "HTTP/1.0 200 OK\r\n"
-                            "Content-Type: text/html\r\n"
+                            "Content-Type: text/%s\r\n"
                             "Content-length: %d\r\n"
                             "Server: shardcached\r\n"
-                            "Connection: Close\r\n\r\n%s", fbuf_used(&buf), fbuf_data(&buf));
+                            "Connection: Close\r\n\r\n%s",
+                            do_html ? "html" : "plain", fbuf_used(&buf), fbuf_data(&buf));
             fbuf_destroy(&buf);
+
         } else if (strcmp(key, "__index__") == 0) {
             shardcache_storage_index_t *index = shardcache_get_index(cache);
             fbuf_t buf = FBUF_STATIC_INITIALIZER;
             int i;
-            fbuf_printf(&buf, "<html><body><table bgcolor='#000000' cellspacing='1' cellpadding='4'>"
-                              "<tr bgcolor='#ffffff'><td><b>Key</b></td><td><b>Value size</b></td></tr>");
+            int do_html = (!request_info->query_string || !strstr(request_info->query_string, "nohtml=1"));
+
+            if (do_html) {
+                fbuf_printf(&buf, "<html><body><table bgcolor='#000000' cellspacing='1' cellpadding='4'>"
+                                  "<tr bgcolor='#ffffff'><td><b>Key</b></td><td><b>Value size</b></td></tr>");
+            }
             for (i = 0; i < index->size; i++) {
                 size_t klen = index->items[i].klen;
                 char keystr[klen+1];
                 memcpy(keystr, index->items[i].key, klen);
                 keystr[klen] = 0;
-                fbuf_printf(&buf, "<tr bgcolor='#ffffff'><td>%s</td><td>(%d)</td></tr>", keystr, index->items[i].vlen);
+                if (do_html)
+                    fbuf_printf(&buf, "<tr bgcolor='#ffffff'><td>%s</td><td>(%d)</td></tr>", keystr, index->items[i].vlen);
+                else
+                    fbuf_printf(&buf, "%s;%d\r\n", keystr, index->items[i].vlen);
             }
-            fbuf_printf(&buf, "</table></body></html>");
+
+            if (do_html)
+                fbuf_printf(&buf, "</table></body></html>");
 
             mg_printf(conn, "HTTP/1.0 200 OK\r\n"
-                            "Content-Type: text/html\r\n"
+                            "Content-Type: text/%s\r\n"
                             "Content-length: %d\r\n"
                             "Server: shardcached\r\n"
-                            "Connection: Close\r\n\r\n%s", fbuf_used(&buf), fbuf_data(&buf));
+                            "Connection: Close\r\n\r\n%s",
+                            do_html ? "html" : "plain", fbuf_used(&buf), fbuf_data(&buf));
 
             fbuf_destroy(&buf);
             shardcache_free_index(index);
