@@ -37,6 +37,7 @@
 #define SHARDCACHED_STORAGE_OPTIONS_DEFAULT "initial_table_size=1024,max_table_size=1000000"
 #define SHARDCACHED_STATS_INTERVAL_DEFAULT 0
 #define SHARDCACHED_NUM_WORKERS_DEFAULT 50
+#define SHARDCACHED_PLUGINS_DIR_DEFAULT "./"
 #define SHARDCACHED_ACCESS_LOG_DEFAULT "./shardcached_access.log"
 #define SHARDCACHED_ERROR_LOG_DEFAULT "./shardcached_error.log"
 
@@ -69,7 +70,7 @@ static void usage(char *progname, char *msg, ...)
            "Possible options:\n"
            "    -a <access_log_file>  the path where to store the access_log file (detaults to '%s')\n"
            "    -e <error_log_file>   the path where to store the error_log file (defaults to '%s')\n"
-           "    -d <plugins_path>     the path where to look for storage plugins (defaults to the CWD of the process)\n"
+           "    -d <plugins_path>     the path where to look for storage plugins (defaults to '%s')\n"
            "    -f                    run in foreground\n"
            "    -i <interval>         change the time interval (in seconds) used to report internal stats via syslog (defaults to '%d')\n"
            "    -l <ip_address:port>  ip_address:port where to listen for incoming http connections\n"
@@ -94,6 +95,7 @@ static void usage(char *progname, char *msg, ...)
            , progname
            , SHARDCACHED_ACCESS_LOG_DEFAULT
            , SHARDCACHED_ERROR_LOG_DEFAULT
+           , SHARDCACHED_PLUGINS_DIR_DEFAULT
            , SHARDCACHED_STATS_INTERVAL_DEFAULT
            , SHARDCACHED_SECRET_DEFAULT
            , SHARDCACHED_STORAGE_TYPE_DEFAULT
@@ -337,7 +339,7 @@ int main(int argc, char **argv)
     char *storage_type = SHARDCACHED_STORAGE_TYPE_DEFAULT;
     char options_string[MAX_OPTIONS_STRING_LEN];
     uint32_t stats_interval = SHARDCACHED_STATS_INTERVAL_DEFAULT;
-    char *plugins_dir = "./";
+    char *plugins_dir = SHARDCACHED_PLUGINS_DIR_DEFAULT;
     int num_workers = SHARDCACHED_NUM_WORKERS_DEFAULT;
     char *access_log_file = SHARDCACHED_ACCESS_LOG_DEFAULT;
     char *error_log_file = SHARDCACHED_ERROR_LOG_DEFAULT;
