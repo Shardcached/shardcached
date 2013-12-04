@@ -228,6 +228,7 @@ static int shardcached_request_handler(struct mg_connection *conn) {
         
 
         shardcache_set(cache, key, strlen(key), in, rb);
+        free(in);
 
         mg_printf(conn, "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n");
     }
