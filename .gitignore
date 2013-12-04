@@ -11,3 +11,6 @@ shardcached
 test/*_test
 .DS_Store
 *.dSYM
+shardcached_access.log
+shardcached_error.log
+*.storage
