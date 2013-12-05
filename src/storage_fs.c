@@ -321,9 +321,20 @@ storage_fs_create(const char **options)
         }
     }
     if (storage_path) {
+        struct stat s;
+        if (stat(storage_path, &s) != 0) {
+            if (mkdir(storage_path, S_IRWXU) != 0) {
+                ERROR("Can't create storage path %s: %s",
+                        storage_path, strerror(errno));
+                return NULL;
+            }
+            NOTICE("Created storage path: %s", storage_path);
+        }
+
         int check = access(storage_path, R_OK|W_OK);
         if (check != 0) {
-            /* TODO - Error Messages */
+            ERROR("Can't access the storage path %s : %s",
+                    storage_path, strerror(errno));
             if (storage_path)
                 free(storage_path);
             if (tmp_path)
@@ -340,7 +351,8 @@ storage_fs_create(const char **options)
             storage->tmp = strdup("/tmp");
         check = access(storage->tmp, R_OK|W_OK);
         if (check != 0) {
-            /* TODO - Error Messages */
+            ERROR("Can't access the temporary path %s : %s",
+                    storage->tmp, strerror(errno));
             free(storage);
             free(st);
             if (storage_path)
@@ -350,7 +362,7 @@ storage_fs_create(const char **options)
             return NULL;
         }
     } else {
-        // TODO - Error Messages
+        ERROR("No storage path defined");
     }
     storage->index = ht_create(1<<16, 0, free);
     storage_fs_walk_and_fill_index(storage->path, storage->index);
