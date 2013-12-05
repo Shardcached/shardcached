@@ -497,8 +497,6 @@ static int parse_nodes_string(char *str)
     char *copy = strdup(str);
     char *s = copy;
 
-    char *shard_names[SHARDCACHED_MAX_SHARDS];
-    int cnt = 0;
     while (s && *s) {
         char *tok = strsep(&s, ",");
         if(tok) {
@@ -514,7 +512,6 @@ static int parse_nodes_string(char *str)
             shardcache_node_t *node = &config.nodes[config.num_nodes-1];
             snprintf(node->label, sizeof(node->label), "%s", label);
             snprintf(node->address, sizeof(node->address), "%s", addr);
-            shard_names[cnt] = tok;
         } 
     }
     free(copy);
