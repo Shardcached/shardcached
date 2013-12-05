@@ -1,0 +1,26 @@
+[chardcached]
+stats_interval = 0                      ; The interval in seconds at which output stats to stdout and/or syslog
+storage_type = fs
+storage_options = storage_path=/home/xant/shardcache_storage,tmp_path=/tmp
+plugins_dir = ./
+loglevel = 2
+daemon = 1
+me = peer1
+
+; the nodes taking part in the shardcache (required)
+[nodes]
+peer1 = localhost:4444
+peer2 = some_peer:4445
+peer3 = some_other_peer:4446
+
+[shardcache]
+num_workers = 50
+evict_on_delete = 1                            ; Evict on delete (optional, defaults to 'yes')
+secret = default                               ; Shared secret used for message signing (optional, defaults to 'default') 
+
+[http]
+listen = *:4321                                ; HTTP address:port where to listen for incoming connections (optional)
+num_workers = 50                               ; Number of http worker threads (optional)
+access_log = ./shardcached_access.log          ; Path to the acces_log file (optional)
+error_log = ./shardcached_error.log            ; Path to the error_log file (optional)
+basepath = shardcache                          ; Base http path (optional) 
