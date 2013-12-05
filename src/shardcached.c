@@ -29,6 +29,7 @@
 #include <shardcache.h>
 
 #include "storage.h"
+#include "ini.h"
 
 #define SHARDCACHED_ADDRESS_DEFAULT "4321"
 #define SHARDCACHED_LOGLEVEL_DEFAULT 0
@@ -40,17 +41,49 @@
 #define SHARDCACHED_PLUGINS_DIR_DEFAULT "./"
 #define SHARDCACHED_ACCESS_LOG_DEFAULT "./shardcached_access.log"
 #define SHARDCACHED_ERROR_LOG_DEFAULT "./shardcached_error.log"
+#define SHARDCACHED_CFGFILE_DEFAULT "shardcached.ini"
 
 #define SHARDCACHED_USERAGENT_SIZE_THRESHOLD 16
 #define SHARDCACHED_MAX_SHARDS 1024
 
 #define ADDR_REGEXP "^[a-z0-9_\\.\\-]+(:[0-9]+)?$"
 
-static char *me = NULL;
-static char *basepath = NULL;
 static pthread_cond_t exit_cond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t exit_lock = PTHREAD_MUTEX_INITIALIZER;
 static int should_exit = 0;
+
+typedef struct {
+    char me[256];
+    char basepath[256];
+    int foreground;
+    int loglevel;
+    char listen_address[256];
+    char nodes[4096];
+    char secret[1024];
+    char storage_type[256];
+    char options_string[MAX_OPTIONS_STRING_LEN];
+    uint32_t stats_interval;
+    char plugins_dir[1024];
+    int num_workers;
+    char access_log_file[1024];
+    char error_log_file[1024];
+} shardcached_config_t;
+
+static shardcached_config_t config = {
+    .me = "",
+    .basepath = "",
+    .foreground = 0,
+    .loglevel = SHARDCACHED_LOGLEVEL_DEFAULT,
+    .listen_address = SHARDCACHED_ADDRESS_DEFAULT,
+    .nodes = "",
+    .secret = SHARDCACHED_SECRET_DEFAULT,
+    .storage_type = SHARDCACHED_STORAGE_TYPE_DEFAULT,
+    .stats_interval = SHARDCACHED_STATS_INTERVAL_DEFAULT,
+    .plugins_dir = SHARDCACHED_PLUGINS_DIR_DEFAULT,
+    .num_workers = SHARDCACHED_NUM_WORKERS_DEFAULT,
+    .access_log_file = SHARDCACHED_ACCESS_LOG_DEFAULT,
+    .error_log_file = SHARDCACHED_ERROR_LOG_DEFAULT,
+};
 
 typedef struct {
     void *value;
@@ -75,7 +108,7 @@ static void usage(char *progname, char *msg, ...)
            "    -i <interval>         change the time interval (in seconds) used to report internal stats via syslog (defaults to '%d')\n"
            "    -l <ip_address:port>  ip_address:port where to listen for incoming http connections\n"
            "    -b                    HTTP url basepath\n"
-           "    -p <peers>            list of peers participating in the shardcache in the form : 'address:port,address2:port2'\n"
+           "    -n <nodes>            list of nodes participating in the shardcache in the form : 'address:port,address2:port2'\n"
            "    -s                    shared secret used for message signing (defaults to : '%s')\n"
            "    -t <type>             storage type (available are : 'mem' and 'fs' (defaults to '%s')\n"
            "    -o <options>          comma-separated list of storage options (defaults to '%s')\n"
@@ -129,14 +162,14 @@ static int shardcached_request_handler(struct mg_connection *conn)
 
     __sync_add_and_fetch(&shcd_active_requests, 1);
 
-    if (basepath) {
-        if (strncmp(key, basepath, strlen(basepath)) != 0) {
+    if (config.basepath) {
+        if (strncmp(key, config.basepath, strlen(config.basepath)) != 0) {
             ERROR("Bad request uri : %s", request_info->uri);
             mg_printf(conn, "HTTP/1.0 404 Not Found\r\n\r\nNot Found");
             __sync_sub_and_fetch(&shcd_active_requests, 1);
             return 1;
         }
-        key += strlen(basepath);
+        key += strlen(config.basepath);
     }
     while (*key == '/')
         key++;
@@ -177,8 +210,8 @@ static int shardcached_request_handler(struct mg_connection *conn)
 
             shardcache_counter_t *counters;
             int ncounters = shardcache_get_counters(cache, &counters);
-            int i;
 
+            int i;
             for (i = 0; i < ncounters; i++) {
                 if (do_html)
                     fbuf_printf(&buf,
@@ -372,25 +405,81 @@ static void shardcached_run(shardcache_t *cache, uint32_t stats_interval)
     }
 }
 
+int config_handler(void *user,
+                   const char *section,
+                   const char *name,
+                   const char *value)
+{
+    shardcached_config_t *config = (shardcached_config_t *)user;
+    if (strcmp(section, "nodes") == 0) {
+        
+    } else {
+        if (strcmp(name, "stats_interval") == 0) {
+            config.stats_interval = strtol(value, NULL, 10);
+        } else if (strcmp(name, "storage_type") == 0) {
+            snprintf(config.storage_type, sizeof(config.storage_type),
+                    "%s", value);
+        } else if (strcmp(name, "storage_options") == 0) {
+            snprintf(config.storage_options, sizeof(config.storage_options),
+                    "%s", value);
+        } else if (strcmp(name, "plugins_dir") == 0) {
+            snprintf(config.plugins_dir, sizeof(config.plugins_dir),
+                    "%s", value);
+        } else if (strcmp(name, "loglevel") == 0) {
+            config.loglevel = strtol(value, NULL, 10);
+        } else if (strcmp(name, "daemon") == 0) {
+            int b = strtol(value, NULL, 10);
+            if (strncasecmp(value, "yes") == 0 ||
+                strncasecmp(value, "true") == 0 ||
+                b == 1)
+            {
+                config.foreground = 1;
+            }
+        } else if (strcmp(name, "me") == 0) {
+            snprintf(config.me, sizeof(config.me),
+                    "%s", value);
+        } else if (strcmp(name, "num_workers") == 0) {
+            if (strcmp(section, "shardcache") == 0) {
+                config.num_workers = strtol(optarg, NULL, 10);
+            }
+        } else if (strcmp(name, "access_log") == 0) {
+            snprintf(config.access_log_file, sizeof(config.access_log_file),
+                    "%s", value);
+        } else if (strcmp(name, "error_log") == 0) {
+            snprintf(config.error_log_file, sizeof(config.error_log_file),
+                    "%s", value);
+        } else if (strcmp(name, "basepath") == 0) {
+            snprintf(config.basepath, sizeof(config.basepath),
+                    "%s", value);
+        }
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
+    int i;
     int option_index = 0;
-    int foreground = 0;
-    int loglevel = SHARDCACHED_LOGLEVEL_DEFAULT;
-    char *listen_address = SHARDCACHED_ADDRESS_DEFAULT;
-    char *peers = NULL;
-    char *secret = SHARDCACHED_SECRET_DEFAULT;
-    char *storage_type = SHARDCACHED_STORAGE_TYPE_DEFAULT;
-    char options_string[MAX_OPTIONS_STRING_LEN];
-    uint32_t stats_interval = SHARDCACHED_STATS_INTERVAL_DEFAULT;
-    char *plugins_dir = SHARDCACHED_PLUGINS_DIR_DEFAULT;
-    int num_workers = SHARDCACHED_NUM_WORKERS_DEFAULT;
-    char *access_log_file = SHARDCACHED_ACCESS_LOG_DEFAULT;
-    char *error_log_file = SHARDCACHED_ERROR_LOG_DEFAULT;
-    
-    strcpy(options_string, SHARDCACHED_STORAGE_OPTIONS_DEFAULT);
+
+    strcpy(config.options_string, SHARDCACHED_STORAGE_OPTIONS_DEFAULT);
+
+    char *cfgfile = SHARDCACHED_CFGFILE_DEFAULT;
+
+    for (i = 1; i < argc-1; i++) {
+        if (strcmp(argv[i], "-c") == 0)
+        {
+            cfgfile = argv[i+1];
+            break;
+        } else if (strncmp(argv[i], "--cfgfile=", 10) == 0) {
+            cfgfile = argv[i]+10;
+            break;
+        }
+    }
+
+    int rc = ini_parse(cfgfile, config_handler, (void *)&config);
 
     static struct option long_options[] = {
+        {"cfgfile", 2, 0, 'c'},
         {"access_log", 2, 0, 'a'},
         {"error_log", 2, 0, 'e'},
         {"base", 2, 0, 'b'},
@@ -398,7 +487,8 @@ int main(int argc, char **argv)
         {"foreground", 0, 0, 'f'},
         {"stats_interval", 2, 0, 'i'},
         {"listen", 2, 0, 'l'},
-        {"peers", 2, 0, 'p'},
+        {"me", 2, 0, 'm'},
+        {"nodes", 2, 0, 'n'},
         {"secret", 2, 0, 's'},
         {"type", 2, 0, 't'},
         {"options", 2, 0, 'o'},
@@ -416,47 +506,66 @@ int main(int argc, char **argv)
             break;
         }
         switch (c) {
+            case 'c':
+                // ignore , we already checked for the cfgfile
+                // option at program startup
+                break;
             case 'a':
-                access_log_file = optarg;
+                snprintf(config.access_log_file,
+                        sizeof(config.access_log_file), "%s", optarg);
                 break;
             case 'b':
-                basepath = optarg;
                 // skip leading '/'s
-                while (*basepath == '/')
-                    basepath++;
+                while (*optarg == '/')
+                    optarg++;
+                snprintf(config.basepath,
+                        sizeof(config.basepath), "%s", optarg);
                 break;
             case 'd':
-                plugins_dir = optarg;
+                snprintf(config.plugins_dir,
+                        sizeof(config.plugins_dir), "%s", optarg);
                 break;
             case 'e':
-                error_log_file = optarg;
+                snprintf(config.error_log_file,
+                        sizeof(config.error_log_file), "%s", optarg);
                 break;
             case 'f':
-                foreground = 1;
+                config.foreground = 1;
                 break;
             case 'i':
-                stats_interval = strtol(optarg, NULL, 10);
+                config.stats_interval = strtol(optarg, NULL, 10);
                 break;
             case 'l':
-                listen_address = optarg;
+                if (strncmp(optarg, "*:", 2))
+                    optarg += 2;
+                snprintf(config.listen_address,
+                        sizeof(config.listen_address), "%s", optarg);
                 break;
-            case 'p':
-                peers = strdup(optarg);
+            case 'm':
+                snprintf(config.me,
+                        sizeof(config.me), "%s", optarg);
+                break;
+            case 'n':
+                snprintf(config.nodes,
+                        sizeof(config.nodes), "%s", optarg);
                 break;
             case 's':
-                secret = optarg;
+                snprintf(config.secret,
+                        sizeof(config.secret), "%s", optarg);
                 break;
             case 't':
-                storage_type = optarg;
+                snprintf(config.storage_type,
+                        sizeof(config.storage_type), "%s", optarg);
                 break;
             case 'o':
-                snprintf(options_string, sizeof(options_string), "%s", optarg);
+                snprintf(config.options_string,
+                        sizeof(config.options_string), "%s", optarg);
                 break;
             case 'v':
-                loglevel++;
+                config.loglevel++;
                 break;
             case 'w':
-                num_workers = strtol(optarg, NULL, 10);
+                config.num_workers = strtol(optarg, NULL, 10);
                 break;
             case 'h':
             case '?':
@@ -467,10 +576,9 @@ int main(int argc, char **argv)
                 break;
         }
     }
-    me = argv[argc-1];
 
     regex_t addr_regexp;
-    int rc = regcomp(&addr_regexp, ADDR_REGEXP, REG_EXTENDED|REG_ICASE);
+    rc = regcomp(&addr_regexp, ADDR_REGEXP, REG_EXTENDED|REG_ICASE);
     if (rc != 0) {
         char errbuf[1024];
         regerror(rc, &addr_regexp, errbuf, sizeof(errbuf));
@@ -478,19 +586,19 @@ int main(int argc, char **argv)
         exit(-1);
     }
 
-    if (!me || *me == '-') {
+    if (!config.me || *config.me == '-') {
         usage(argv[0], "The local address is mandatory");
     }
 
-    int matched = regexec(&addr_regexp, me, 0, NULL, 0);
+    int matched = regexec(&addr_regexp, config.me, 0, NULL, 0);
     if (matched != 0) {
-        usage(argv[0], "Bad address format: '%s'", me);
+        usage(argv[0], "Bad address format: '%s'", config.me);
     }
 
     char *shard_names[SHARDCACHED_MAX_SHARDS];
     int cnt = 0;
-    if (peers) {
-        char *tok = strtok(peers, ",");
+    if (config.nodes) {
+        char *tok = strtok(config.nodes, ",");
         while(tok) {
             matched = regexec(&addr_regexp, tok, 0, NULL, 0);
             if (matched != 0) {
@@ -505,7 +613,7 @@ int main(int argc, char **argv)
     regfree(&addr_regexp);
 
     // go daemon if we have to
-    if (!foreground) {
+    if (!config.foreground) {
         int rc = daemon(0, 0);
         if (rc != 0) {
             fprintf(stderr, "Can't go daemon: %s\n", strerror(errno));
@@ -518,19 +626,19 @@ int main(int argc, char **argv)
     signal(SIGQUIT, shardcached_stop);
     signal(SIGPIPE, shardcached_do_nothing);
 
-    log_init("shardcached", loglevel);
+    log_init("shardcached", config.loglevel);
 
-    shcd_storage_t *st = shcd_storage_init(storage_type,
-                                           options_string,
-                                           plugins_dir);
+    shcd_storage_t *st = shcd_storage_init(config.storage_type,
+                                           config.options_string,
+                                           config.plugins_dir);
     if (!st) {
         ERROR("Can't initialize the storage subsystem");
         exit(-1);
     }
 
-    DEBUG("Starting the shardcache engine with %d workers", num_workers);
-    shardcache_t *cache = shardcache_create(me, shard_names, cnt,
-            shcd_storage_get(st), secret, num_workers);
+    DEBUG("Starting the shardcache engine with %d workers", config.num_workers);
+    shardcache_t *cache = shardcache_create(config.me, shard_names, cnt,
+            shcd_storage_get(st), config.secret, config.num_workers);
 
     if (!cache) {
         ERROR("Can't initialize the shardcache engine");
@@ -542,12 +650,12 @@ int main(int argc, char **argv)
         .begin_request = shardcached_request_handler
     };
 
-    if (strncmp(listen_address, "*:", 2) == 0)
-        listen_address += 2;
+    if (strncmp(config.listen_address, "*:", 2) == 0)
+        config.listen_address += 2;
 
-    const char *mongoose_options[] = { "listening_ports", listen_address,
-                                       "access_log_file", access_log_file,
-                                       "error_log_file", error_log_file,
+    const char *mongoose_options[] = { "listening_ports", config.listen_address,
+                                       "access_log_file", config.access_log_file,
+                                       "error_log_file",  config.error_log_file,
                                         NULL };
 
     // let's start mongoose
@@ -555,7 +663,7 @@ int main(int argc, char **argv)
                                       cache,
                                       mongoose_options);
     if (ctx) {
-        shardcached_run(cache, stats_interval);
+        shardcached_run(cache, config.stats_interval);
     } else {
         ERROR("Can't start the http subsystem");
     }
@@ -569,7 +677,7 @@ int main(int argc, char **argv)
 
     shcd_storage_destroy(st);
 
-    free(peers);
+    free(config.nodes);
 
     exit(0);
 }
