@@ -2,17 +2,19 @@ DEPS= https://github.com/xant/libshardcache
 
 export DEPS_INSTALL_DIR=$(shell pwd)
 
-export LIBDIR := $(DEPS_INSTALL_DIR)/.libs
-export INCDIR := $(DEPS_INSTALL_DIR)/.incs
+export SHARDCACHE_INSTALL_LIBDIR := $(DEPS_INSTALL_DIR)/.libs
+export SHARDCACHE_INSTALL_INCDIR := $(DEPS_INSTALL_DIR)/.incs
 
 all:
-	@mkdir -p .libs; \
+	mkdir -p .libs; \
 	mkdir -p .incs; \
 	for i in $(DEPS); do \
 	    name=`echo $$i | cut -d/ -f5 `; \
 	    if [ ! -d $$name ]; then \
 		git clone $$i; \
 	    fi; \
+	    export LIBDIR=$(SHARDCACHE_INSTALL_LIBDIR); \
+	    export INCDIR=$(SHARDCACHE_INSTALL_INCDIR); \
 	    export LIBDIR=$(LIBDIR); \
 	    export INCDIR=$(INCDIR); \
 	    export DEPS_INSTALL_DIR=$(DEPS_INSTALL_DIR); \
@@ -20,6 +22,8 @@ all:
 	    make -eC $$name; \
 	    if [ $$? -ne 0 ] ; then exit $$?; fi; \
 	    make -eC $$name install; \
+        cp libshardcache/deps/.incs/* $(DEPS_INSTALL_DIR)/.incs/; \
+        cp libshardcache/deps/.libs/* $(DEPS_INSTALL_DIR)/.libs/; \
 	done
 
 update:
@@ -48,6 +52,6 @@ clean:
 		make -C $$name clean; \
 	    fi; \
 	done;
-	@rm -rf $(LIBDIR);
-	@rm -rf $(INCDIR);
+	@rm -rf $(DEPS_INSTALL_DIR)/.incs
+	@rm -rf $(DEPS_INSTALL_DIR)/.libs
 
