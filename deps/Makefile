@@ -22,9 +22,9 @@ all:
 	    make -eC $$name; \
 	    if [ $$? -ne 0 ] ; then exit $$?; fi; \
 	    make -eC $$name install; \
+	done; \
         cp libshardcache/deps/.incs/* $(DEPS_INSTALL_DIR)/.incs/; \
-        cp libshardcache/deps/.libs/* $(DEPS_INSTALL_DIR)/.libs/; \
-	done
+        cp libshardcache/deps/.libs/* $(DEPS_INSTALL_DIR)/.libs/
 
 update:
 	@for i in $(DEPS); do \
@@ -35,7 +35,7 @@ update:
 		cd -;\
 	    fi;\
 	done; \
-    make -eC libshardcache update_deps
+	make -eC libshardcache update_deps
 
 purge: clean
 	@for i in $(DEPS); do \
