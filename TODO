@@ -1,12 +1,3 @@
- * assign labels to nodes so that they can be used by the hashing function
-   instead of their address:port string nodes can change their ip address
-   or name (or even the listening port) but still be the same node which
-   might be already holding existing keys.
-
- * support a configuration file
-   cmdline arguments will still be supported and will override options
-   defined in the configuration file.
-
  * more statistics on work done outside of the worker threads
    (like when shardcache_get()/set() is called from an http thread and
     it involves fetching/sending data from/to a peer)
