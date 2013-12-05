@@ -165,6 +165,8 @@ static int shardcached_request_handler(struct mg_connection *conn)
 
     __sync_add_and_fetch(&shcd_active_requests, 1);
 
+    while (*key == '/' && *key)
+        key++;
     if (config.basepath) {
         if (strncmp(key, config.basepath, strlen(config.basepath)) != 0) {
             ERROR("Bad request uri : %s", request_info->uri);
@@ -174,8 +176,9 @@ static int shardcached_request_handler(struct mg_connection *conn)
         }
         key += strlen(config.basepath);
     }
-    while (*key == '/')
+    while (*key == '/' && *key)
         key++;
+
     if (*key == 0) {
         mg_printf(conn, "HTTP/1.0 404 Not Found\r\n\r\nNot Found");
         __sync_sub_and_fetch(&shcd_active_requests, 1);
