@@ -6,7 +6,7 @@ export SHARDCACHE_INSTALL_LIBDIR := $(DEPS_INSTALL_DIR)/.libs
 export SHARDCACHE_INSTALL_INCDIR := $(DEPS_INSTALL_DIR)/.incs
 
 all:
-	mkdir -p .libs; \
+	@mkdir -p .libs; \
 	mkdir -p .incs; \
 	for i in $(DEPS); do \
 	    name=`echo $$i | cut -d/ -f5 `; \
