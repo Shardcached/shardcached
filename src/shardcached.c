@@ -322,7 +322,7 @@ static int shardcached_request_handler(struct mg_connection *conn)
                     char *p = key;
                     while (*p && *p != '.')
                         p++;
-                    if (*p) {
+                    if (*p && *(p+1)) {
                         p++;
                         char *mt = (char *)ht_get(mime_types, p, strlen(p), NULL);
                         if (mt)
