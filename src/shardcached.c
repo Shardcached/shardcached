@@ -814,8 +814,13 @@ int main(int argc, char **argv)
     }
 
     DEBUG("Starting the shardcache engine with %d workers", config.num_workers);
-    shardcache_t *cache = shardcache_create(config.me, config.nodes, config.num_nodes,
-            shcd_storage_get(st), config.secret, config.num_workers);
+    shardcache_t *cache = shardcache_create(config.me,
+                                            config.nodes,
+                                            config.num_nodes,
+                                            shcd_storage_get(st),
+                                            config.secret,
+                                            config.num_workers,
+                                            config.evict_on_delete);
 
     if (!cache) {
         ERROR("Can't initialize the shardcache engine");
