@@ -39,6 +39,7 @@
 #define SHARDCACHED_STORAGE_OPTIONS_DEFAULT ""
 #define SHARDCACHED_STATS_INTERVAL_DEFAULT 0
 #define SHARDCACHED_NUM_WORKERS_DEFAULT 50
+#define SHARDCACHED_NUM_HTTP_WORKERS_DEFAULT 50
 #define SHARDCACHED_PLUGINS_DIR_DEFAULT "./"
 #define SHARDCACHED_ACCESS_LOG_DEFAULT "./shardcached_access.log"
 #define SHARDCACHED_ERROR_LOG_DEFAULT "./shardcached_error.log"
@@ -53,6 +54,7 @@ static pthread_cond_t exit_cond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t exit_lock = PTHREAD_MUTEX_INITIALIZER;
 static int should_exit = 0;
 static shcd_acl_t *http_acl = NULL;
+static hashtable_t *mime_types = NULL;
 
 typedef struct {
     char me[256];
@@ -68,6 +70,7 @@ typedef struct {
     uint32_t stats_interval;
     char plugins_dir[1024];
     int num_workers;
+    int num_http_workers;
     char access_log_file[1024];
     char error_log_file[1024];
     int evict_on_delete;
@@ -88,6 +91,7 @@ static shardcached_config_t config = {
     .stats_interval = SHARDCACHED_STATS_INTERVAL_DEFAULT,
     .plugins_dir = SHARDCACHED_PLUGINS_DIR_DEFAULT,
     .num_workers = SHARDCACHED_NUM_WORKERS_DEFAULT,
+    .num_http_workers = SHARDCACHED_NUM_HTTP_WORKERS_DEFAULT,
     .access_log_file = SHARDCACHED_ACCESS_LOG_DEFAULT,
     .error_log_file = SHARDCACHED_ERROR_LOG_DEFAULT,
     .evict_on_delete = 1,
@@ -313,11 +317,24 @@ static int shardcached_request_handler(struct mg_connection *conn)
             size_t vlen = 0;
             void *value = shardcache_get(cache, key, strlen(key), &vlen);
             if (value) {
+                char *mtype = "application/octet-stream";
+                if (mime_types) {
+                    char *p = key;
+                    while (*p && *p != '.')
+                        p++;
+                    p++;
+                    if (*p && *(p+1)) {
+                        p++;
+                        char *mt = (char *)ht_get(mime_types, p, strlen(p), NULL);
+                        if (mt)
+                            mtype = mt;
+                    }
+                }
                 mg_printf(conn, "HTTP/1.0 200 OK\r\n"
-                                "Content-Type: application/octet-stream\r\n"
+                                "Content-Type: %s\r\n"
                                 "Content-length: %d\r\n"
                                 "Server: shardcached\r\n"
-                                "Connection: Close\r\n\r\n", (int)vlen);
+                                "Connection: Close\r\n\r\n", mtype, (int)vlen);
                 mg_write(conn, value, vlen);
                 free(value);
             } else {
@@ -541,7 +558,7 @@ int config_handler(void *user,
             ERROR("Errors configuring acl : %s = %s", name, value);
             return 0;
         }
-    } else {
+    } else if (strcmp(section, "shardcached") == 0) {
         if (strcmp(name, "stats_interval") == 0) {
             config->stats_interval = strtol(value, NULL, 10);
         } else if (strcmp(name, "storage_type") == 0) {
@@ -572,10 +589,25 @@ int config_handler(void *user,
         } else if (strcmp(name, "me") == 0) {
             snprintf(config->me, sizeof(config->me),
                     "%s", value);
-        } else if (strcmp(name, "num_workers") == 0) {
-            if (strcmp(section, "shardcache") == 0) {
-                config->num_workers = strtol(value, NULL, 10);
-            }
+        } else {
+            ERROR("Unknown option %s in section %s", name, section);
+            return 0;
+        }
+    } else if (strcmp(section, "shardcache") == 0) {
+        if (strcmp(name, "num_workers") == 0) {
+            config->num_workers = strtol(value, NULL, 10);
+        } else if (strcmp(name, "evict_on_delete") == 0) {
+            config->evict_on_delete = strtol(value, NULL, 10);
+        } else if (strcmp(name, "secret") == 0) {
+            snprintf(config->secret, sizeof(config->secret),
+                    "%s", value);
+        } else {
+            ERROR("Unknown option %s in section %s", name, section);
+            return 0;
+        }
+    } else if (strcmp(section, "http") == 0) {
+        if (strcmp(name, "num_workers") == 0) {
+            config->num_http_workers = strtol(value, NULL, 10);
         } else if (strcmp(name, "access_log") == 0) {
             snprintf(config->access_log_file, sizeof(config->access_log_file),
                     "%s", value);
@@ -589,11 +621,6 @@ int config_handler(void *user,
             if (strncmp(value, "*:", 2) == 0)
                 value += 2;
             snprintf(config->listen_address, sizeof(config->listen_address),
-                    "%s", value);
-        } else if (strcmp(name, "evict_on_delete") == 0) {
-            config->evict_on_delete = strtol(value, NULL, 10);
-        } else if (strcmp(name, "secret") == 0) {
-            snprintf(config->secret, sizeof(config->secret),
                     "%s", value);
         } else if (strcmp(name, "acl_default") == 0) {
             if (strcmp(value, "allow") == 0) {
@@ -609,6 +636,14 @@ int config_handler(void *user,
             ERROR("Unknown option %s in section %s", name, section);
             return 0;
         }
+    } else if (strcmp(section, "mime-types") == 0) {
+        if (!mime_types) {
+            mime_types = ht_create(128, 512, free);
+        }
+        ht_set(mime_types, (void *)name, strlen(name), (void *)value, strlen(value)+1);
+    }else {
+        ERROR("Unknown section %s", section);
+        return 0;
     }
     return 1;
 }
@@ -832,9 +867,12 @@ int main(int argc, char **argv)
         .begin_request = shardcached_request_handler
     };
 
+    char http_workers[6];
+    snprintf(http_workers, sizeof(http_workers), "%d", config.num_http_workers);
     const char *mongoose_options[] = { "listening_ports", config.listen_address,
                                        "access_log_file", config.access_log_file,
                                        "error_log_file",  config.error_log_file,
+                                       "num_threads",     http_workers,
                                         NULL };
 
     // let's start mongoose
@@ -853,7 +891,12 @@ int main(int argc, char **argv)
     if (ctx)
         mg_stop(ctx);
 
-    shcd_acl_destroy(http_acl);
+    if (http_acl)
+        shcd_acl_destroy(http_acl);
+
+    if (mime_types)
+        ht_destroy(mime_types);
+
     shardcache_destroy(cache);
 
     shcd_storage_destroy(st);

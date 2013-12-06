@@ -1,4 +1,4 @@
-[chardcached]
+[shardcached]
 stats_interval = 0                             ; The interval in seconds at which output stats to stdout and/or syslog
 storage_type = fs
 storage_options = storage_path=/home/xant/shardcache_storage,tmp_path=/tmp
@@ -34,3 +34,21 @@ __(stats|index)__  = deny:*:*
 .*                 = deny:DELETE:*
 .*                 = allow:*:82.173.134.166/32
 .*                 = allow:*:127.0.0.1/32
+
+
+[mime-types]
+pdf      = application/pdf
+ps       = application/postscript
+xml      = application/xml
+js|json  = application/json
+gif      = image/gif
+jpeg     = image/jpeg
+png      = image/png
+tiff     = image/tiff
+html     = text/html
+txt      = text/plain
+csv      = text/csv
+css      = text/css
+mpg      = video/mpeg
+mp4      = video/mp4
+
