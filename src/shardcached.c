@@ -322,8 +322,7 @@ static int shardcached_request_handler(struct mg_connection *conn)
                     char *p = key;
                     while (*p && *p != '.')
                         p++;
-                    p++;
-                    if (*p && *(p+1)) {
+                    if (*p) {
                         p++;
                         char *mt = (char *)ht_get(mime_types, p, strlen(p), NULL);
                         if (mt)
@@ -640,7 +639,7 @@ int config_handler(void *user,
         if (!mime_types) {
             mime_types = ht_create(128, 512, free);
         }
-        ht_set(mime_types, (void *)name, strlen(name), (void *)value, strlen(value)+1);
+        ht_set(mime_types, (void *)name, strlen(name), (void *)strdup(value), strlen(value)+1);
     }else {
         ERROR("Unknown section %s", section);
         return 0;
