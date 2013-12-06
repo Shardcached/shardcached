@@ -30,6 +30,7 @@
 
 #include "storage.h"
 #include "ini.h"
+#include "acl.h"
 
 #define SHARDCACHED_ADDRESS_DEFAULT "4321"
 #define SHARDCACHED_LOGLEVEL_DEFAULT 0
@@ -51,6 +52,7 @@
 static pthread_cond_t exit_cond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t exit_lock = PTHREAD_MUTEX_INITIALIZER;
 static int should_exit = 0;
+static shcd_acl_t *http_acl = NULL;
 
 typedef struct {
     char me[256];
@@ -68,6 +70,8 @@ typedef struct {
     int num_workers;
     char access_log_file[1024];
     char error_log_file[1024];
+    int evict_on_delete;
+    shcd_acl_action_t acl_default;
 } shardcached_config_t;
 
 static shardcached_config_t config = {
@@ -86,6 +90,8 @@ static shardcached_config_t config = {
     .num_workers = SHARDCACHED_NUM_WORKERS_DEFAULT,
     .access_log_file = SHARDCACHED_ACCESS_LOG_DEFAULT,
     .error_log_file = SHARDCACHED_ERROR_LOG_DEFAULT,
+    .evict_on_delete = 1,
+    .acl_default = SHCD_ACL_ACTION_ALLOW
 };
 
 typedef struct {
@@ -186,6 +192,15 @@ static int shardcached_request_handler(struct mg_connection *conn)
     }
 
     if (strncasecmp(request_info->request_method, "GET", 3) == 0) {
+        if (http_acl) {
+            shcd_acl_method_t method = SHCD_ACL_METHOD_GET;
+            if (shcd_acl_eval(http_acl, method, key, request_info->remote_ip) != SHCD_ACL_ACTION_ALLOW) {
+                mg_printf(conn, "HTTP/1.0 403 Forbidden\r\n\r\nForbidden");
+                __sync_sub_and_fetch(&shcd_active_requests, 1);
+                return 1;
+            }
+        }
+
         if (strcmp(key, "__stats__") == 0) {
             int do_html = (!request_info->query_string ||
                            !strstr(request_info->query_string, "nohtml=1"));
@@ -310,11 +325,31 @@ static int shardcached_request_handler(struct mg_connection *conn)
             }
         }
     } else if (strncasecmp(request_info->request_method, "DELETE", 6) == 0) {
+
+        if (http_acl) {
+            shcd_acl_method_t method = SHCD_ACL_METHOD_DEL;
+            if (shcd_acl_eval(http_acl, method, key, request_info->remote_ip) != SHCD_ACL_ACTION_ALLOW) {
+                mg_printf(conn, "HTTP/1.0 403 Forbidden\r\n\r\nForbidden");
+                __sync_sub_and_fetch(&shcd_active_requests, 1);
+                return 1;
+            }
+        }
+
         int rc = shardcache_del(cache, key, strlen(key));
         mg_printf(conn, "HTTP/1.0 %s\r\n"
                         "Content-Length: 0\r\n\r\n",
                          rc == 0 ? "200 OK" : "500 ERR");
     } else if (strncasecmp(request_info->request_method, "PUT", 3) == 0) {
+
+        if (http_acl) {
+            shcd_acl_method_t method = SHCD_ACL_METHOD_PUT;
+            if (shcd_acl_eval(http_acl, method, key, request_info->remote_ip) != SHCD_ACL_ACTION_ALLOW) {
+                mg_printf(conn, "HTTP/1.0 403 Forbidden\r\n\r\nForbidden");
+                __sync_sub_and_fetch(&shcd_active_requests, 1);
+                return 1;
+            }
+        }
+
         int clen = 0;
         const char *clen_hdr = mg_get_header(conn, "Content-Length");
         if (clen_hdr) {
@@ -419,11 +454,74 @@ static int check_address_string(char *str)
         char errbuf[1024];
         regerror(rc, &addr_regexp, errbuf, sizeof(errbuf));
         ERROR("Can't compile regexp %s: %s\n", ADDR_REGEXP, errbuf);
-        return 0;
+        return -1;
     }
+
+    int matched = regexec(&addr_regexp, str, 0, NULL, 0);
     regfree(&addr_regexp);
 
-    return 1;
+    if (matched != 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
+int config_acl(char *pattern, char *aclstr)
+{
+    char *p = aclstr;
+    shcd_acl_action_t action;
+
+    if (!http_acl) {
+        http_acl = shcd_acl_create(SHCD_ACL_ACTION_ALLOW);
+    }
+    char *action_string = strsep(&p, ":");
+    if (!action_string) {
+        ERROR("Invalid acl string %s", aclstr);
+        return -1;
+    }
+    if (strcasecmp(action_string, "allow") == 0) {
+        action = SHCD_ACL_ACTION_ALLOW;
+    } else if (strcasecmp(action_string, "deny") == 0) {
+        action = SHCD_ACL_ACTION_DENY;
+    } else {
+        ERROR("Invalid acl action %s (can be 'allow' or 'deny')", action_string);
+        return -1;
+    }
+
+    char *method_string = strsep(&p, ":");
+    shcd_acl_method_t method = SHCD_ACL_METHOD_ANY;
+    if (strcasecmp(method_string, "*") == 0) {
+        method = SHCD_ACL_METHOD_ANY;
+    } else if (strcasecmp(method_string, "GET") == 0) {
+        method = SHCD_ACL_METHOD_GET;
+    } else if (strcasecmp(method_string, "PUT") == 0) {
+        method = SHCD_ACL_METHOD_PUT;
+    } else if (strcasecmp(method_string, "DELETE") == 0) {
+        method = SHCD_ACL_METHOD_DEL;
+    } else {
+        ERROR("Invalid acl method %s (can be 'GET' or 'PUT' or 'DELETE')", method_string);
+        return -1;
+    }
+    int ret = 0;
+    struct in_addr ip;
+    uint32_t mask = 0xffff;
+    char *ipaddr_string = strsep(&p, "/");
+    char *maskstr = p;
+    if (maskstr && *maskstr) {
+        mask = -1 << strtol(maskstr, NULL, 10);
+    }
+    if (*ipaddr_string == '*' && strlen(ipaddr_string) == 1) {
+        ip.s_addr = 0;
+        mask = 0;
+    } else {
+        ret = inet_aton(ipaddr_string, &ip);
+        if (ret != 1) {
+            ERROR("Bad ip address format %s (%s)\n", ipaddr_string);
+            return -1;
+        }
+    }
+    return shcd_acl_add(http_acl, pattern, action, method, ntohl(ip.s_addr), mask);
 }
 
 int config_handler(void *user,
@@ -438,6 +536,11 @@ int config_handler(void *user,
         shardcache_node_t *node = &config->nodes[config->num_nodes-1];
         snprintf(node->label, sizeof(node->label), "%s", name);
         snprintf(node->address, sizeof(node->address), "%s", value);
+    } else if (strcmp(section, "acl") == 0) {
+        if (config_acl((char *)name, (char *)value) != 0) {
+            ERROR("Errors configuring acl : %s = %s", name, value);
+            return 0;
+        }
     } else {
         if (strcmp(name, "stats_interval") == 0) {
             config->stats_interval = strtol(value, NULL, 10);
@@ -464,7 +567,7 @@ int config_handler(void *user,
                        b != 1)
             {
                 ERROR("Invalid value %s for option %s", value, name);
-                return -1;
+                return 0;
             }
         } else if (strcmp(name, "me") == 0) {
             snprintf(config->me, sizeof(config->me),
@@ -487,12 +590,27 @@ int config_handler(void *user,
                 value += 2;
             snprintf(config->listen_address, sizeof(config->listen_address),
                     "%s", value);
+        } else if (strcmp(name, "evict_on_delete") == 0) {
+            config->evict_on_delete = strtol(value, NULL, 10);
+        } else if (strcmp(name, "secret") == 0) {
+            snprintf(config->secret, sizeof(config->secret),
+                    "%s", value);
+        } else if (strcmp(name, "acl_default") == 0) {
+            if (strcmp(value, "allow") == 0) {
+                config->acl_default = SHCD_ACL_ACTION_ALLOW;
+            } else if (strcmp(value, "deny") == 0) {
+                config->acl_default = SHCD_ACL_ACTION_DENY;
+            } else {
+                ERROR("Invalid value %s for option %s (can be only  'allow' or 'deny')",
+                        value, name);
+                return 0;
+            }
         } else {
             ERROR("Unknown option %s in section %s", name, section);
-            return -1;
+            return 0;
         }
     }
-    return 0;
+    return 1;
 }
 
 static int parse_nodes_string(char *str)
@@ -505,10 +623,10 @@ static int parse_nodes_string(char *str)
         if(tok) {
             char *label = strsep(&tok, ":");
             char *addr = tok;
-            if (!check_address_string(addr)) {
+            if (check_address_string(addr) != 0) {
                 ERROR("Bad address format for peer: '%s'", addr);
                 free(copy);
-                return 0;
+                return -1;
             }
             config.num_nodes++;
             config.nodes = realloc(config.nodes, config.num_nodes * sizeof(shardcache_node_t));
@@ -518,7 +636,7 @@ static int parse_nodes_string(char *str)
         } 
     }
     free(copy);
-    return 1;
+    return 0;
 }
 
 int main(int argc, char **argv)
@@ -541,7 +659,7 @@ int main(int argc, char **argv)
 
     int rc = ini_parse(cfgfile, config_handler, (void *)&config);
     if (rc != 0) {
-        ERROR("Can't parse configuration file %s", cfgfile);
+        usage(argv[0], "Can't parse configuration file %s (line %d)", cfgfile, rc);
     }
 
     static struct option long_options[] = {
@@ -619,7 +737,9 @@ int main(int argc, char **argv)
                     config.nodes = NULL;
                 }
                 config.num_nodes = 0;
-                parse_nodes_string(optarg);
+                if (parse_nodes_string(optarg) != 0) {
+                    usage(argv[0], "Bad format : '%s'", optarg);
+                }
                 break;
             case 's':
                 snprintf(config.secret,
@@ -716,6 +836,7 @@ int main(int argc, char **argv)
     struct mg_context *ctx = mg_start(&shardcached_callbacks,
                                       cache,
                                       mongoose_options);
+
     if (ctx) {
         shardcached_run(cache, config.stats_interval);
     } else {
@@ -727,6 +848,7 @@ int main(int argc, char **argv)
     if (ctx)
         mg_stop(ctx);
 
+    shcd_acl_destroy(http_acl);
     shardcache_destroy(cache);
 
     shcd_storage_destroy(st);

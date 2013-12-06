@@ -1,10 +1,10 @@
 [chardcached]
-stats_interval = 0                      ; The interval in seconds at which output stats to stdout and/or syslog
+stats_interval = 0                             ; The interval in seconds at which output stats to stdout and/or syslog
 storage_type = fs
 storage_options = storage_path=/home/xant/shardcache_storage,tmp_path=/tmp
 plugins_dir = ./
 loglevel = 2
-daemon = 1
+daemon = 0
 me = peer1
 
 ; the nodes taking part in the shardcache (required)
@@ -24,3 +24,13 @@ num_workers = 50                               ; Number of http worker threads (
 access_log = ./shardcached_access.log          ; Path to the acces_log file (optional)
 error_log = ./shardcached_error.log            ; Path to the error_log file (optional)
 basepath = shardcache                          ; Base http path (optional) 
+acl_default = allow                            ; Default behavior of for paths not mentioned in the acl section
+                                               ; possible values are : 'allow' , 'deny'
+                                               ; (optional, defaults to 'allow')
+
+[acl]
+__(stats|index)__  = deny:*:*
+.*                 = deny:PUT:*
+.*                 = deny:DELETE:*
+.*                 = allow:*:82.173.134.166/32
+.*                 = allow:*:127.0.0.1/32
