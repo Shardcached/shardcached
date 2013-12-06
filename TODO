@@ -12,6 +12,8 @@
 
  * support expiration of keys once ready in libshardcache
 
- * mysql storage
+ * rest storage plugin
 
- * redis storage
+ * mysql storage plugin
+
+ * redis storage plugin
