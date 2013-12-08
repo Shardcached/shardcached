@@ -28,7 +28,7 @@ st_fs_filename(char *basepath, void *key, size_t klen, char **intermediate_path)
         return NULL;
 
     if (stat(basepath, &st) != 0) {
-        if (mkdir(basepath, S_IRWXU) != 0) {
+        if (mkdir(basepath, S_IRWXU) != 0 && errno != EEXIST) {
             fprintf(stderr, "Can't create directory %s: %s\n",
                     basepath, strerror(errno));
             return NULL;
@@ -54,7 +54,7 @@ st_fs_filename(char *basepath, void *key, size_t klen, char **intermediate_path)
     char dirname[dirnamelen];
     snprintf(dirname, dirnamelen, "%s/%s", basepath, dname);
     if (stat(dirname, &st) != 0) {
-        if (mkdir(dirname, S_IRWXU) != 0) {
+        if (mkdir(dirname, S_IRWXU) != 0 && errno != EEXIST) {
             fprintf(stderr, "Can't create directory %s: %s\n",
                     dirname, strerror(errno));
             return NULL;

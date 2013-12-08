@@ -87,6 +87,8 @@ static shardcached_config_t config = {
     .listen_address = SHARDCACHED_ADDRESS_DEFAULT,
     .nodes = NULL,
     .num_nodes = 0,
+    .migration_nodes = NULL,
+    .num_migration_nodes = 0,
     .secret = SHARDCACHED_SECRET_DEFAULT,
     .storage_type = SHARDCACHED_STORAGE_TYPE_DEFAULT,
     .storage_options = SHARDCACHED_STORAGE_OPTIONS_DEFAULT,
@@ -157,10 +159,10 @@ static void usage(char *progname, char *msg, ...)
 
 static void shardcached_stop(int sig)
 {
+    __sync_add_and_fetch(&should_exit, 1);
     pthread_mutex_lock(&exit_lock);
     pthread_cond_signal(&exit_cond);
     pthread_mutex_unlock(&exit_lock);
-    __sync_add_and_fetch(&should_exit, 1);
 }
 
 static void shardcached_do_nothing(int sig)
@@ -459,10 +461,12 @@ static void shardcached_run(shardcache_t *cache, uint32_t stats_interval)
         }
         ht_destroy(prevcounters);
     } else {
-        // and keep working until we are told to exit
-        pthread_mutex_lock(&exit_lock);
-        pthread_cond_wait(&exit_cond, &exit_lock);
-        pthread_mutex_unlock(&exit_lock);
+        while (!__sync_fetch_and_add(&should_exit, 0)) {
+            // and keep working until we are told to exit
+            pthread_mutex_lock(&exit_lock);
+            pthread_cond_wait(&exit_cond, &exit_lock);
+            pthread_mutex_unlock(&exit_lock);
+        }
     }
 }
 
@@ -842,7 +846,16 @@ int main(int argc, char **argv)
         }
     }
     if (!me_check) {
-        usage(argv[0], "'me' MUST match the label of one of the configured nodes");
+        // 'me' not found among peers, perhaps a migration will happen
+        // and we are one the the new peers ?
+        for (i = 0; i < config.num_migration_nodes; i++) {
+            if (strcmp(config.me, config.migration_nodes[i].label) == 0) {
+                me_check = 1;
+                break;
+            }
+        }
+        if (!me_check) // no it's really a misconfiguration
+            usage(argv[0], "'me' MUST match the label of one of the configured nodes");
     }
  
     // go daemon if we have to
@@ -854,7 +867,7 @@ int main(int argc, char **argv)
         }
     }
 
-    signal(SIGINT, shardcached_stop);
+    //signal(SIGINT, shardcached_stop);
     signal(SIGHUP, shardcached_stop);
     signal(SIGQUIT, shardcached_stop);
     signal(SIGPIPE, shardcached_do_nothing);
