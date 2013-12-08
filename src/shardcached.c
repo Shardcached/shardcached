@@ -9,6 +9,7 @@
 #include <signal.h>
 #include <errno.h>
 #include <sys/time.h>
+#include <sys/stat.h>
 
 #include "log.h"
 
@@ -43,7 +44,6 @@
 #define SHARDCACHED_PLUGINS_DIR_DEFAULT "./"
 #define SHARDCACHED_ACCESS_LOG_DEFAULT "./shardcached_access.log"
 #define SHARDCACHED_ERROR_LOG_DEFAULT "./shardcached_error.log"
-#define SHARDCACHED_CFGFILE_DEFAULT "shardcached.ini"
 
 #define SHARDCACHED_USERAGENT_SIZE_THRESHOLD 16
 #define SHARDCACHED_MAX_SHARDS 1024
@@ -64,6 +64,8 @@ typedef struct {
     char listen_address[256];
     shardcache_node_t *nodes;
     int  num_nodes;
+    shardcache_node_t *migration_nodes;
+    int  num_migration_nodes;
     char secret[1024];
     char storage_type[256];
     char storage_options[MAX_OPTIONS_STRING_LEN];
@@ -121,12 +123,14 @@ static void usage(char *progname, char *msg, ...)
            "    -i <interval>         change the time interval (in seconds) used to report internal stats via syslog (defaults to '%d')\n"
            "    -l <ip_address:port>  ip_address:port where to listen for incoming http connections\n"
            "    -b                    HTTP url basepath\n"
-           "    -n <nodes>            list of nodes participating in the shardcache in the form : 'address:port,address2:port2'\n"
+           "    -n <nodes>            list of nodes participating in the shardcache in the form : 'label:address:port,label2:address2:port2'\n"
+           "    -m me                 the label of this node, to identify it among the ones participating in the shardcache\n"
            "    -s                    shared secret used for message signing (defaults to : '%s')\n"
            "    -t <type>             storage type (available are : 'mem' and 'fs' (defaults to '%s')\n"
            "    -o <options>          comma-separated list of storage options (defaults to '%s')\n"
            "    -v                    increase the log level (can be passed multiple times)\n"
            "    -w <num_workers>      number of shardcache worker threads (defaults to '%d')\n"
+           "    -x <nodes>            new list of nodes to migrate the shardcache to. The format to use is the same of the '-n' option\n"
            "\n"
            "       Builtin storage types:\n"
            "         * mem            memory based storage\n"
@@ -640,18 +644,20 @@ int config_handler(void *user,
             mime_types = ht_create(128, 512, free);
         }
         ht_set(mime_types, (void *)name, strlen(name), (void *)strdup(value), strlen(value)+1);
-    }else {
+    } else {
         ERROR("Unknown section %s", section);
         return 0;
     }
     return 1;
 }
 
-static int parse_nodes_string(char *str)
+static int parse_nodes_string(char *str, int migration)
 {
     char *copy = strdup(str);
     char *s = copy;
 
+    int *num_nodes = migration ? &config.num_migration_nodes : &config.num_nodes;
+    shardcache_node_t **nodes = migration ? &config.migration_nodes : &config.nodes;
     while (s && *s) {
         char *tok = strsep(&s, ",");
         if(tok) {
@@ -662,9 +668,9 @@ static int parse_nodes_string(char *str)
                 free(copy);
                 return -1;
             }
-            config.num_nodes++;
-            config.nodes = realloc(config.nodes, config.num_nodes * sizeof(shardcache_node_t));
-            shardcache_node_t *node = &config.nodes[config.num_nodes-1];
+            (*num_nodes)++;
+            *nodes = realloc(*nodes, *num_nodes * sizeof(shardcache_node_t));
+            shardcache_node_t *node = &(*nodes)[(*num_nodes)-1];
             snprintf(node->label, sizeof(node->label), "%s", label);
             snprintf(node->address, sizeof(node->address), "%s", addr);
         } 
@@ -678,7 +684,7 @@ int main(int argc, char **argv)
     int i;
     int option_index = 0;
 
-    char *cfgfile = SHARDCACHED_CFGFILE_DEFAULT;
+    char *cfgfile = NULL;
 
     for (i = 1; i < argc-1; i++) {
         if (strcmp(argv[i], "-c") == 0)
@@ -691,9 +697,12 @@ int main(int argc, char **argv)
         }
     }
 
-    int rc = ini_parse(cfgfile, config_handler, (void *)&config);
-    if (rc != 0) {
-        usage(argv[0], "Can't parse configuration file %s (line %d)", cfgfile, rc);
+    if (cfgfile) {
+        int rc = ini_parse(cfgfile, config_handler, (void *)&config);
+        if (rc != 0) {
+            usage(argv[0], "Can't parse configuration file %s (line %d)\n",
+                    cfgfile, rc);
+        }
     }
 
     static struct option long_options[] = {
@@ -712,12 +721,13 @@ int main(int argc, char **argv)
         {"options", 2, 0, 'o'},
         {"verbose", 0, 0, 'v'},
         {"workers", 2, 0, 'w'},
+        {"migrate", 2, 0, 'x'},
         {"help", 0, 0, 'h'},
         {0, 0, 0, 0}
     };
 
     char c;
-    while ((c = getopt_long (argc, argv, "a:b:c:d:fg:hi:l:p:s:t:o:vw:?",
+    while ((c = getopt_long (argc, argv, "a:b:c:d:fg:hi:l:m:n:s:t:o:vw:x:?",
                              long_options, &option_index)))
     {
         if (c == -1) {
@@ -754,7 +764,7 @@ int main(int argc, char **argv)
                 config.stats_interval = strtol(optarg, NULL, 10);
                 break;
             case 'l':
-                if (strncmp(optarg, "*:", 2))
+                if (strncmp(optarg, "*:", 2) == 0)
                     optarg += 2;
                 snprintf(config.listen_address,
                         sizeof(config.listen_address), "%s", optarg);
@@ -771,7 +781,7 @@ int main(int argc, char **argv)
                     config.nodes = NULL;
                 }
                 config.num_nodes = 0;
-                if (parse_nodes_string(optarg) != 0) {
+                if (parse_nodes_string(optarg, 0) != 0) {
                     usage(argv[0], "Bad format : '%s'", optarg);
                 }
                 break;
@@ -792,6 +802,18 @@ int main(int argc, char **argv)
                 break;
             case 'w':
                 config.num_workers = strtol(optarg, NULL, 10);
+                break;
+            case 'x':
+                // first reset the actual migration_nodes configuration
+                // (which might come from the cfg file)
+                if (config.migration_nodes) {
+                    free(config.migration_nodes);
+                    config.migration_nodes = NULL;
+                }
+                config.num_migration_nodes = 0;
+                if (parse_nodes_string(optarg, 1) != 0) {
+                    usage(argv[0], "Bad format : '%s'", optarg);
+                }
                 break;
             case 'h':
             case '?':
@@ -878,6 +900,9 @@ int main(int argc, char **argv)
     struct mg_context *ctx = mg_start(&shardcached_callbacks,
                                       cache,
                                       mongoose_options);
+
+    if (config.migration_nodes)
+        shardcache_migration_begin(cache, config.migration_nodes, config.num_migration_nodes, 1);
 
     if (ctx) {
         shardcached_run(cache, config.stats_interval);
