@@ -25,6 +25,7 @@ NOTE: Almost all options can be controlled/overridden via the cmdline,
 
 ===============================================================================================================================
 
+```
 Usage: shardcached [OPTION]...
     Possible options:
     -a <access_log_file>  the path where to store the access_log file (detaults to './shardcached_access.log')
@@ -52,12 +53,12 @@ Usage: shardcached [OPTION]...
             - storage_path=<path>          the parh where to store the keys/values on the filesystem
             - tmp_path=<path>              the path to a temporary directory to use while new data is being uploaded
 
-
+```
 
 ===============================================================================================================================
 
 Example configuration file :
-
+```
 [shardcached]
 stats_interval = 0                             ; The interval in seconds at which output stats to stdout and/or syslog
 storage_type = fs
@@ -114,4 +115,4 @@ css      = text/css
 mpg      = video/mpeg
 mp4      = video/mp4
 
-
+```
