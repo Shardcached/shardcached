@@ -39,8 +39,8 @@
 #define SHARDCACHED_STORAGE_TYPE_DEFAULT "mem"
 #define SHARDCACHED_STORAGE_OPTIONS_DEFAULT ""
 #define SHARDCACHED_STATS_INTERVAL_DEFAULT 0
-#define SHARDCACHED_NUM_WORKERS_DEFAULT 50
-#define SHARDCACHED_NUM_HTTP_WORKERS_DEFAULT 50
+#define SHARDCACHED_NUM_WORKERS_DEFAULT 10
+#define SHARDCACHED_NUM_HTTP_WORKERS_DEFAULT 10
 #define SHARDCACHED_PLUGINS_DIR_DEFAULT "./"
 #define SHARDCACHED_ACCESS_LOG_DEFAULT "./shardcached_access.log"
 #define SHARDCACHED_ERROR_LOG_DEFAULT "./shardcached_error.log"
@@ -622,7 +622,19 @@ int config_handler(void *user,
         if (strcmp(name, "num_workers") == 0) {
             config->num_workers = strtol(value, NULL, 10);
         } else if (strcmp(name, "evict_on_delete") == 0) {
-            config->evict_on_delete = strtol(value, NULL, 10);
+            int b = strtol(value, NULL, 10);
+            if (strcasecmp(value, "yes") == 0 ||
+                strcasecmp(value, "true") == 0 ||
+                b == 1)
+            {
+                config->evict_on_delete = b;
+            } else if (strcasecmp(value, "no") &&
+                       strcasecmp(value, "false") &&
+                       b != 0)
+            {
+                ERROR("Invalid value %s for option %s", value, name);
+                return 0;
+            }
         } else if (strcmp(name, "secret") == 0) {
             snprintf(config->secret, sizeof(config->secret),
                     "%s", value);
