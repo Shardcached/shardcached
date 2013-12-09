@@ -867,7 +867,7 @@ int main(int argc, char **argv)
         }
     }
 
-    //signal(SIGINT, shardcached_stop);
+    signal(SIGINT, shardcached_stop);
     signal(SIGHUP, shardcached_stop);
     signal(SIGQUIT, shardcached_stop);
     signal(SIGPIPE, shardcached_do_nothing);
