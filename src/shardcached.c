@@ -77,6 +77,7 @@ typedef struct {
     char error_log_file[1024];
     int evict_on_delete;
     shcd_acl_action_t acl_default;
+    int nohttp;
 } shardcached_config_t;
 
 static shardcached_config_t config = {
@@ -99,7 +100,8 @@ static shardcached_config_t config = {
     .access_log_file = SHARDCACHED_ACCESS_LOG_DEFAULT,
     .error_log_file = SHARDCACHED_ERROR_LOG_DEFAULT,
     .evict_on_delete = 1,
-    .acl_default = SHCD_ACL_ACTION_ALLOW
+    .acl_default = SHCD_ACL_ACTION_ALLOW,
+    .nohttp = 0
 };
 
 typedef struct {
@@ -596,6 +598,22 @@ int config_handler(void *user,
         } else if (strcmp(name, "me") == 0) {
             snprintf(config->me, sizeof(config->me),
                     "%s", value);
+        } else if (strcmp(name, "nohttp") == 0) {
+            int b = strtol(value, NULL, 10);
+            if (strcasecmp(value, "yes") == 0 ||
+                strcasecmp(value, "true") == 0 ||
+                b == 1)
+            {
+                config->nohttp = 1;
+            }
+            else if (strcasecmp(value, "no") &&
+                     strcasecmp(value, "false") &&
+                     b != 1)
+            {
+                ERROR("Invalid value %s for option %s", value, name);
+                return 0;
+            }
+
         } else {
             ERROR("Unknown option %s in section %s", name, section);
             return 0;
@@ -726,12 +744,13 @@ int main(int argc, char **argv)
         {"verbose", 0, 0, 'v'},
         {"workers", 2, 0, 'w'},
         {"migrate", 2, 0, 'x'},
+        {"nohttp", 0, 0, 'H'},
         {"help", 0, 0, 'h'},
         {0, 0, 0, 0}
     };
 
     char c;
-    while ((c = getopt_long (argc, argv, "a:b:c:d:fg:hi:l:m:n:s:t:o:vw:x:?",
+    while ((c = getopt_long (argc, argv, "a:b:c:d:fg:hHi:l:m:n:s:t:o:vw:x:?",
                              long_options, &option_index)))
     {
         if (c == -1) {
@@ -763,6 +782,9 @@ int main(int argc, char **argv)
                 break;
             case 'f':
                 config.foreground = 1;
+                break;
+            case 'H':
+                config.nohttp = 1;
                 break;
             case 'i':
                 config.stats_interval = strtol(optarg, NULL, 10);
@@ -910,14 +932,20 @@ int main(int argc, char **argv)
                                         NULL };
 
     // let's start mongoose
-    struct mg_context *ctx = mg_start(&shardcached_callbacks,
-                                      cache,
-                                      mongoose_options);
+    struct mg_context *ctx = NULL;
+
+    if (config.nohttp) {
+        NOTICE("HTTP subsystem has been administratively disabled");
+    } else {
+        ctx = mg_start(&shardcached_callbacks,
+                       cache,
+                       mongoose_options);
+    }
 
     if (config.migration_nodes)
         shardcache_migration_begin(cache, config.migration_nodes, config.num_migration_nodes, 1);
 
-    if (ctx) {
+    if (ctx || config.nohttp) {
         shardcached_run(cache, config.stats_interval);
     } else {
         ERROR("Can't start the http subsystem");
