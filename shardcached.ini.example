@@ -1,31 +1,40 @@
 [shardcached]
 stats_interval = 0                             ; The interval in seconds at which output stats to stdout and/or syslog
-storage_type = fs
+                                               ; if '0' no stats will be reported on stdout/systlog
+                                               ; (optional, defaults to '0')
+
+storage_type = fs                              ; The storage type (optional, defaults to 'mem')
+
 storage_options = storage_path=/home/xant/shardcache_storage,tmp_path=/tmp
-plugins_dir = ./
-loglevel = 2
-daemon = 0
-me = peer1
+                                               ; storage options (possibly optional, depend on the storage implementation)
+
+
+plugins_dir = ./                               ; The directory where to find plugins (optional, defaults to './')
+loglevel = 2                                   ; The loglevel (optional, defaults to '0')
+daemon = no                                    ; Run as daemon or in foreground (optional, defaults to 'yes')
+nohttp = no                                    ; Disable the HTTP subsystem (optional, defaults to 'no')
+me = peer1                                     ; Identifies this peer among the shardcache nodes
+                                               ; which are defined in the [nodes] section
 
 ; the nodes taking part in the shardcache (required)
 [nodes]
-peer1 = localhost:4444
+peer1 = my_address:4444
 peer2 = some_peer:4445
 peer3 = some_other_peer:4446
 
 [shardcache]
-num_workers = 50
-evict_on_delete = 1                            ; Evict on delete (optional, defaults to 'yes')
+num_workers = 50                               ; Number of shardcache workers (optional, defaults to '10')
+evict_on_delete = yes                          ; Evict on delete (optional, defaults to 'yes')
 secret = default                               ; Shared secret used for message signing (optional, defaults to 'default') 
 
 [http]
 listen = *:4321                                ; HTTP address:port where to listen for incoming connections (optional)
-num_workers = 50                               ; Number of http worker threads (optional)
+num_workers = 50                               ; Number of http worker threads (optional, defaults to '10')
 access_log = ./shardcached_access.log          ; Path to the acces_log file (optional)
 error_log = ./shardcached_error.log            ; Path to the error_log file (optional)
 basepath = shardcache                          ; Base http path (optional) 
-acl_default = allow                            ; Default behavior of for paths not mentioned in the acl section
-                                               ; possible values are : 'allow' , 'deny'
+acl_default = allow                            ; Default behavior for paths not matching any of those defined 
+                                               ; in the acl section. Possible values are : 'allow' , 'deny'
                                                ; (optional, defaults to 'allow')
 
 [acl]
