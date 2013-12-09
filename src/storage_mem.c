@@ -127,6 +127,10 @@ storage_mem_create(const char **options)
     if (options) {
         while (*options) {
             char *key = (char *)*options++;
+
+            if (!*key)
+                break;
+
             char *value = NULL;
             if (*options) {
                 value = (char *)*options++;
