@@ -35,12 +35,14 @@ Usage: shardcached [OPTION]...
     -i <interval>         change the time interval (in seconds) used to report internal stats via syslog (defaults to '0')
     -l <ip_address:port>  ip_address:port where to listen for incoming http connections
     -b                    HTTP url basepath
-    -p <peers>            list of peers participating in the shardcache in the form : 'address:port,address2:port2'
+    -n <nodes>            list of nodes participating in the shardcache in the form : 'label:address:port,label2:address2:port2'
+    -m me                 the label of this node, to identify it among the ones participating in the shardcache
     -s                    shared secret used for message signing (defaults to : 'default')
     -t <type>             storage type (available are : 'mem' and 'fs' (defaults to 'mem')
     -o <options>          comma-separated list of storage options (defaults to '')
     -v                    increase the log level (can be passed multiple times)
     -w <num_workers>      number of shardcache worker threads (defaults to '50')
+    -x <nodes>            new list of nodes to migrate the shardcache to. The format to use is the same of the '-n' option
 
     Builtin storage types:
         * mem            memory based storage
