@@ -1,9 +1,9 @@
-shardcached
+shardcached - A distributed cache and storage system
 ======
 
-C implementation of a full-featured shardcache daemon
+C implementation of a full-featured [shardcache](http://github.com/xant/libshardcache "libshardcache") daemon
 
-shardcached implements an http frontend exposing all functionalities provided by libshardcache.
+shardcached implements an http frontend exposing all functionalities provided by [shardcache](http://github.com/xant/libshardcache "libshardcache").
 
  * the internal counters and the storage index are exposed through the 'magic' keys (urls) :'__index__' and '__stats__'.
 
