@@ -174,6 +174,229 @@ static void shardcached_do_nothing(int sig)
 
 static int shcd_active_requests = 0;
 
+static void shardcached_build_index_response(fbuf_t *buf, int do_html, shardcache_t *cache)
+{
+    int i;
+
+    shardcache_storage_index_t *index = shardcache_get_index(cache);
+
+    if (do_html) {
+        fbuf_printf(buf,
+                    "<html><body>"
+                    "<table bgcolor='#000000' "
+                    "cellspacing='1' "
+                    "cellpadding='4'>"
+                    "<tr bgcolor='#ffffff'>"
+                    "<td><b>Key</b></td>"
+                    "<td><b>Value size</b></td>"
+                    "</tr>");
+    }
+    for (i = 0; i < index->size; i++) {
+        size_t klen = index->items[i].klen;
+        char keystr[klen+1];
+        memcpy(keystr, index->items[i].key, klen);
+        keystr[klen] = 0;
+        if (do_html)
+            fbuf_printf(buf,
+                        "<tr bgcolor='#ffffff'><td>%s</td>"
+                        "<td>(%d)</td></tr>",
+                        keystr,
+                        index->items[i].vlen);
+        else
+            fbuf_printf(buf,
+                        "%s;%d\r\n",
+                        keystr,
+                        index->items[i].vlen);
+    }
+
+    if (do_html)
+        fbuf_printf(buf, "</table></body></html>");
+
+    shardcache_free_index(index);
+}
+
+static void shardcached_build_stats_response(fbuf_t *buf, int do_html, shardcache_t *cache)
+{
+    if (do_html) {
+        fbuf_printf(buf,
+                    "<html><body>"
+                    "<table bgcolor='#000000' "
+                    "cellspacing='1' "
+                    "cellpadding='4'>"
+                    "<tr bgcolor='#ffffff'>"
+                    "<td><b>Counter</b></td>"
+                    "<td><b>Value</b></td>"
+                    "</tr>"
+                    "<tr bgcolor='#ffffff'>"
+                    "<td>active_http_requests</td>"
+                    "<td>%d</td>",
+                      __sync_fetch_and_add(&shcd_active_requests, 0));
+    } else {
+        fbuf_printf(buf,
+                    "active_http_requests;%d\r\n",
+                    __sync_fetch_and_add(&shcd_active_requests, 0));
+    }
+
+
+    shardcache_counter_t *counters;
+    int ncounters = shardcache_get_counters(cache, &counters);
+
+    int i;
+    for (i = 0; i < ncounters; i++) {
+        if (do_html)
+            fbuf_printf(buf,
+                        "<tr bgcolor='#ffffff'><td>%s</td><td>%u</td>",
+                        counters[i].name,
+                        counters[i].value);
+        else
+            fbuf_printf(buf,
+                        "%s;%u\r\n",
+                        counters[i].name,
+                        counters[i].value);
+    }
+    if (do_html)
+        fbuf_printf(buf, "</table></body></html>");
+    free(counters);
+}
+
+static void shardcached_handle_get_request(shardcache_t *cache, struct mg_connection *conn, char *key)
+{
+    struct mg_request_info *request_info = mg_get_request_info(conn);
+
+    if (http_acl) {
+        shcd_acl_method_t method = SHCD_ACL_METHOD_GET;
+        if (shcd_acl_eval(http_acl, method, key, request_info->remote_ip) != SHCD_ACL_ACTION_ALLOW) {
+            mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
+            return;
+        }
+    }
+
+    if (strcmp(key, "__stats__") == 0) {
+        int do_html = (!request_info->query_string ||
+                       !strstr(request_info->query_string, "nohtml=1"));
+
+        fbuf_t buf = FBUF_STATIC_INITIALIZER;
+        shardcached_build_stats_response(&buf, do_html, cache);
+
+        mg_printf(conn, "HTTP/1.0 200 OK\r\n"
+                        "Content-Type: text/%s\r\n"
+                        "Content-length: %d\r\n"
+                        "Server: shardcached\r\n"
+                        "Connection: Close\r\n\r\n%s",
+                        do_html ? "html" : "plain",
+                        fbuf_used(&buf),
+                        fbuf_data(&buf));
+
+        fbuf_destroy(&buf);
+
+    } else if (strcmp(key, "__index__") == 0) {
+        fbuf_t buf = FBUF_STATIC_INITIALIZER;
+        int do_html = (!request_info->query_string ||
+                       !strstr(request_info->query_string, "nohtml=1"));
+
+        shardcached_build_index_response(&buf, do_html, cache);
+
+        mg_printf(conn, "HTTP/1.0 200 OK\r\n"
+                        "Content-Type: text/%s\r\n"
+                        "Content-length: %d\r\n"
+                        "Server: shardcached\r\n"
+                        "Connection: Close\r\n\r\n%s",
+                        do_html ? "html" : "plain",
+                        fbuf_used(&buf),
+                        fbuf_data(&buf));
+
+        fbuf_destroy(&buf);
+    } else {
+        size_t vlen = 0;
+        void *value = shardcache_get(cache, key, strlen(key), &vlen);
+        if (value) {
+            char *mtype = "application/octet-stream";
+            if (mime_types) {
+                char *p = key;
+                while (*p && *p != '.')
+                    p++;
+                if (*p && *(p+1)) {
+                    p++;
+                    char *mt = (char *)ht_get(mime_types, p, strlen(p), NULL);
+                    if (mt)
+                        mtype = mt;
+                }
+            }
+            mg_printf(conn, "HTTP/1.0 200 OK\r\n"
+                            "Content-Type: %s\r\n"
+                            "Content-length: %d\r\n"
+                            "Server: shardcached\r\n"
+                            "Connection: Close\r\n\r\n", mtype, (int)vlen);
+            mg_write(conn, value, vlen);
+            free(value);
+        } else {
+            mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\nNot Found");
+        }
+    }
+}
+
+static void shardcached_handle_delete_request(shardcache_t *cache, struct mg_connection *conn, char *key)
+{
+    struct mg_request_info *request_info = mg_get_request_info(conn);
+    if (http_acl) {
+        shcd_acl_method_t method = SHCD_ACL_METHOD_DEL;
+        if (shcd_acl_eval(http_acl, method, key, request_info->remote_ip) != SHCD_ACL_ACTION_ALLOW) {
+            mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
+            return;
+        }
+    }
+
+    int rc = shardcache_del(cache, key, strlen(key));
+    mg_printf(conn, "HTTP/1.0 %s\r\n"
+                    "Content-Length: 0\r\n\r\n",
+                     rc == 0 ? "200 OK" : "500 ERR");
+
+}
+
+static void shardcached_handle_put_request(shardcache_t *cache, struct mg_connection *conn, char *key)
+{
+    struct mg_request_info *request_info = mg_get_request_info(conn);
+    if (http_acl) {
+        shcd_acl_method_t method = SHCD_ACL_METHOD_PUT;
+        if (shcd_acl_eval(http_acl, method, key, request_info->remote_ip) != SHCD_ACL_ACTION_ALLOW) {
+            mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
+            return;
+        }
+    }
+
+    int clen = 0;
+    const char *clen_hdr = mg_get_header(conn, "Content-Length");
+    if (clen_hdr) {
+        clen = strtol(clen_hdr, NULL, 10); 
+    }
+    
+    if (!clen) {
+        mg_printf(conn, "HTTP/1.0 400 Bad Request\r\nContent-Length: 0\r\n\r\n");
+        return;
+    }
+
+    char *in = malloc(clen);
+    int rb = 0;
+    do {
+        int n = mg_read(conn, in+rb, clen-rb);
+        if (n == 0) {
+            // connection closed by peer
+            break;
+        } else if (n < 0) {
+            // error
+            break;
+        } else {
+            rb += n;
+        }
+    } while (rb != clen);
+    
+
+    shardcache_set(cache, key, strlen(key), in, rb);
+    free(in);
+
+    mg_printf(conn, "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n");
+}
+
 static int shardcached_request_handler(struct mg_connection *conn)
 {
 
@@ -188,7 +411,7 @@ static int shardcached_request_handler(struct mg_connection *conn)
     if (config.basepath) {
         if (strncmp(key, config.basepath, strlen(config.basepath)) != 0) {
             ERROR("Bad request uri : %s", request_info->uri);
-            mg_printf(conn, "HTTP/1.0 404 Not Found\r\n\r\nNot Found");
+            mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
             __sync_sub_and_fetch(&shcd_active_requests, 1);
             return 1;
         }
@@ -198,215 +421,22 @@ static int shardcached_request_handler(struct mg_connection *conn)
         key++;
 
     if (*key == 0) {
-        mg_printf(conn, "HTTP/1.0 404 Not Found\r\n\r\nNot Found");
+        mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length 9\r\n\r\nNot Found");
         __sync_sub_and_fetch(&shcd_active_requests, 1);
         return 1;
     }
 
-    if (strncasecmp(request_info->request_method, "GET", 3) == 0) {
-        if (http_acl) {
-            shcd_acl_method_t method = SHCD_ACL_METHOD_GET;
-            if (shcd_acl_eval(http_acl, method, key, request_info->remote_ip) != SHCD_ACL_ACTION_ALLOW) {
-                mg_printf(conn, "HTTP/1.0 403 Forbidden\r\n\r\nForbidden");
-                __sync_sub_and_fetch(&shcd_active_requests, 1);
-                return 1;
-            }
-        }
-
-        if (strcmp(key, "__stats__") == 0) {
-            int do_html = (!request_info->query_string ||
-                           !strstr(request_info->query_string, "nohtml=1"));
-
-            fbuf_t buf = FBUF_STATIC_INITIALIZER;
+    // handle the actual GET/PUT/DELETE request
+    if (strncasecmp(request_info->request_method, "GET", 3) == 0)
+        shardcached_handle_get_request(cache, conn, key);
+    else if (strncasecmp(request_info->request_method, "DELETE", 6) == 0)
+        shardcached_handle_delete_request(cache, conn, key);
+    else if (strncasecmp(request_info->request_method, "PUT", 3) == 0)
+        shardcached_handle_put_request(cache, conn, key);
+    else
+        mg_printf(conn, "HTTP/1.0 405 Method Not Allowed\r\nContent-Length: 11\r\n\r\nNot Allowed");
 
 
-            if (do_html) {
-                fbuf_printf(&buf,
-                            "<html><body>"
-                            "<table bgcolor='#000000' "
-                            "cellspacing='1' "
-                            "cellpadding='4'>"
-                            "<tr bgcolor='#ffffff'>"
-                            "<td><b>Counter</b></td>"
-                            "<td><b>Value</b></td>"
-                            "</tr>"
-                            "<tr bgcolor='#ffffff'>"
-                            "<td>active_http_requests</td>"
-                            "<td>%d</td>",
-                              __sync_fetch_and_add(&shcd_active_requests, 0));
-            } else {
-                fbuf_printf(&buf,
-                            "active_http_requests;%d\r\n",
-                            __sync_fetch_and_add(&shcd_active_requests, 0));
-            }
-
-
-            shardcache_counter_t *counters;
-            int ncounters = shardcache_get_counters(cache, &counters);
-
-            int i;
-            for (i = 0; i < ncounters; i++) {
-                if (do_html)
-                    fbuf_printf(&buf,
-                                "<tr bgcolor='#ffffff'><td>%s</td><td>%u</td>",
-                                counters[i].name,
-                                counters[i].value);
-                else
-                    fbuf_printf(&buf,
-                                "%s;%u\r\n",
-                                counters[i].name,
-                                counters[i].value);
-            }
-            if (do_html)
-                fbuf_printf(&buf, "</table></body></html>");
-            free(counters);
-                 
-            mg_printf(conn, "HTTP/1.0 200 OK\r\n"
-                            "Content-Type: text/%s\r\n"
-                            "Content-length: %d\r\n"
-                            "Server: shardcached\r\n"
-                            "Connection: Close\r\n\r\n%s",
-                            do_html ? "html" : "plain",
-                            fbuf_used(&buf),
-                            fbuf_data(&buf));
-            fbuf_destroy(&buf);
-
-        } else if (strcmp(key, "__index__") == 0) {
-            shardcache_storage_index_t *index = shardcache_get_index(cache);
-            fbuf_t buf = FBUF_STATIC_INITIALIZER;
-            int i;
-            int do_html = (!request_info->query_string ||
-                           !strstr(request_info->query_string, "nohtml=1"));
-
-            if (do_html) {
-                fbuf_printf(&buf,
-                            "<html><body>"
-                            "<table bgcolor='#000000' "
-                            "cellspacing='1' "
-                            "cellpadding='4'>"
-                            "<tr bgcolor='#ffffff'>"
-                            "<td><b>Key</b></td>"
-                            "<td><b>Value size</b></td>"
-                            "</tr>");
-            }
-            for (i = 0; i < index->size; i++) {
-                size_t klen = index->items[i].klen;
-                char keystr[klen+1];
-                memcpy(keystr, index->items[i].key, klen);
-                keystr[klen] = 0;
-                if (do_html)
-                    fbuf_printf(&buf,
-                                "<tr bgcolor='#ffffff'><td>%s</td>"
-                                "<td>(%d)</td></tr>",
-                                keystr,
-                                index->items[i].vlen);
-                else
-                    fbuf_printf(&buf,
-                                "%s;%d\r\n",
-                                keystr,
-                                index->items[i].vlen);
-            }
-
-            if (do_html)
-                fbuf_printf(&buf, "</table></body></html>");
-
-            mg_printf(conn, "HTTP/1.0 200 OK\r\n"
-                            "Content-Type: text/%s\r\n"
-                            "Content-length: %d\r\n"
-                            "Server: shardcached\r\n"
-                            "Connection: Close\r\n\r\n%s",
-                            do_html ? "html" : "plain",
-                            fbuf_used(&buf),
-                            fbuf_data(&buf));
-
-            fbuf_destroy(&buf);
-            shardcache_free_index(index);
-        } else {
-            size_t vlen = 0;
-            void *value = shardcache_get(cache, key, strlen(key), &vlen);
-            if (value) {
-                char *mtype = "application/octet-stream";
-                if (mime_types) {
-                    char *p = key;
-                    while (*p && *p != '.')
-                        p++;
-                    if (*p && *(p+1)) {
-                        p++;
-                        char *mt = (char *)ht_get(mime_types, p, strlen(p), NULL);
-                        if (mt)
-                            mtype = mt;
-                    }
-                }
-                mg_printf(conn, "HTTP/1.0 200 OK\r\n"
-                                "Content-Type: %s\r\n"
-                                "Content-length: %d\r\n"
-                                "Server: shardcached\r\n"
-                                "Connection: Close\r\n\r\n", mtype, (int)vlen);
-                mg_write(conn, value, vlen);
-                free(value);
-            } else {
-                mg_printf(conn, "HTTP/1.0 404 Not Found\r\n\r\nNot Found");
-            }
-        }
-    } else if (strncasecmp(request_info->request_method, "DELETE", 6) == 0) {
-
-        if (http_acl) {
-            shcd_acl_method_t method = SHCD_ACL_METHOD_DEL;
-            if (shcd_acl_eval(http_acl, method, key, request_info->remote_ip) != SHCD_ACL_ACTION_ALLOW) {
-                mg_printf(conn, "HTTP/1.0 403 Forbidden\r\n\r\nForbidden");
-                __sync_sub_and_fetch(&shcd_active_requests, 1);
-                return 1;
-            }
-        }
-
-        int rc = shardcache_del(cache, key, strlen(key));
-        mg_printf(conn, "HTTP/1.0 %s\r\n"
-                        "Content-Length: 0\r\n\r\n",
-                         rc == 0 ? "200 OK" : "500 ERR");
-    } else if (strncasecmp(request_info->request_method, "PUT", 3) == 0) {
-
-        if (http_acl) {
-            shcd_acl_method_t method = SHCD_ACL_METHOD_PUT;
-            if (shcd_acl_eval(http_acl, method, key, request_info->remote_ip) != SHCD_ACL_ACTION_ALLOW) {
-                mg_printf(conn, "HTTP/1.0 403 Forbidden\r\n\r\nForbidden");
-                __sync_sub_and_fetch(&shcd_active_requests, 1);
-                return 1;
-            }
-        }
-
-        int clen = 0;
-        const char *clen_hdr = mg_get_header(conn, "Content-Length");
-        if (clen_hdr) {
-            clen = strtol(clen_hdr, NULL, 10); 
-        }
-        
-        if (!clen) {
-            mg_printf(conn, "HTTP/1.0 400 Bad Request\r\n\r\n");
-            __sync_sub_and_fetch(&shcd_active_requests, 1);
-            return 1;
-        }
-
-        char *in = malloc(clen);
-        int rb = 0;
-        do {
-            int n = mg_read(conn, in+rb, clen-rb);
-            if (n == 0) {
-                // connection closed by peer
-                break;
-            } else if (n < 0) {
-                // error
-                break;
-            } else {
-                rb += n;
-            }
-        } while (rb != clen);
-        
-
-        shardcache_set(cache, key, strlen(key), in, rb);
-        free(in);
-
-        mg_printf(conn, "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n");
-    }
     __sync_sub_and_fetch(&shcd_active_requests, 1);
     return 1;
 }
@@ -464,7 +494,7 @@ static void shardcached_run(shardcache_t *cache, uint32_t stats_interval)
         ht_destroy(prevcounters);
     } else {
         while (!__sync_fetch_and_add(&should_exit, 0)) {
-            // and keep working until we are told to exit
+            // and keep waiting until we are told to exit
             pthread_mutex_lock(&exit_lock);
             pthread_cond_wait(&exit_cond, &exit_lock);
             pthread_mutex_unlock(&exit_lock);
@@ -556,32 +586,49 @@ int config_handler(void *user,
                    const char *value)
 {
     shardcached_config_t *config = (shardcached_config_t *)user;
-    if (strcmp(section, "nodes") == 0) {
+
+    if (strcmp(section, "nodes") == 0)
+    {
         config->num_nodes++;
         config->nodes = realloc(config->nodes, config->num_nodes * sizeof(shardcache_node_t));
         shardcache_node_t *node = &config->nodes[config->num_nodes-1];
         snprintf(node->label, sizeof(node->label), "%s", name);
         snprintf(node->address, sizeof(node->address), "%s", value);
-    } else if (strcmp(section, "acl") == 0) {
-        if (config_acl((char *)name, (char *)value) != 0) {
+    }
+    else if (strcmp(section, "acl") == 0)
+    {
+        if (config_acl((char *)name, (char *)value) != 0)
+        {
             ERROR("Errors configuring acl : %s = %s", name, value);
             return 0;
         }
-    } else if (strcmp(section, "shardcached") == 0) {
+    }
+    else if (strcmp(section, "shardcached") == 0)
+    {
         if (strcmp(name, "stats_interval") == 0) {
             config->stats_interval = strtol(value, NULL, 10);
-        } else if (strcmp(name, "storage_type") == 0) {
+        }
+        else if (strcmp(name, "storage_type") == 0)
+        {
             snprintf(config->storage_type, sizeof(config->storage_type),
                     "%s", value);
-        } else if (strcmp(name, "storage_options") == 0) {
+        }
+        else if (strcmp(name, "storage_options") == 0)
+        {
             snprintf(config->storage_options, sizeof(config->storage_options),
                     "%s", value);
-        } else if (strcmp(name, "plugins_dir") == 0) {
+        }
+        else if (strcmp(name, "plugins_dir") == 0)
+        {
             snprintf(config->plugins_dir, sizeof(config->plugins_dir),
                     "%s", value);
-        } else if (strcmp(name, "loglevel") == 0) {
+        }
+        else if (strcmp(name, "loglevel") == 0)
+        {
             config->loglevel = strtol(value, NULL, 10);
-        } else if (strcmp(name, "daemon") == 0) {
+        }
+        else if (strcmp(name, "daemon") == 0)
+        {
             int b = strtol(value, NULL, 10);
             if (strcasecmp(value, "no") == 0 ||
                 strcasecmp(value, "false") == 0 ||
@@ -595,10 +642,14 @@ int config_handler(void *user,
                 ERROR("Invalid value %s for option %s", value, name);
                 return 0;
             }
-        } else if (strcmp(name, "me") == 0) {
+        }
+        else if (strcmp(name, "me") == 0)
+        {
             snprintf(config->me, sizeof(config->me),
                     "%s", value);
-        } else if (strcmp(name, "nohttp") == 0) {
+        }
+        else if (strcmp(name, "nohttp") == 0)
+        {
             int b = strtol(value, NULL, 10);
             if (strcasecmp(value, "yes") == 0 ||
                 strcasecmp(value, "true") == 0 ||
@@ -614,14 +665,21 @@ int config_handler(void *user,
                 return 0;
             }
 
-        } else {
+        }
+        else
+        {
             ERROR("Unknown option %s in section %s", name, section);
             return 0;
         }
-    } else if (strcmp(section, "shardcache") == 0) {
-        if (strcmp(name, "num_workers") == 0) {
+    }
+    else if (strcmp(section, "shardcache") == 0)
+    {
+        if (strcmp(name, "num_workers") == 0)
+        {
             config->num_workers = strtol(value, NULL, 10);
-        } else if (strcmp(name, "evict_on_delete") == 0) {
+        }
+        else if (strcmp(name, "evict_on_delete") == 0)
+        {
             int b = strtol(value, NULL, 10);
             if (strcasecmp(value, "yes") == 0 ||
                 strcasecmp(value, "true") == 0 ||
@@ -635,50 +693,79 @@ int config_handler(void *user,
                 ERROR("Invalid value %s for option %s", value, name);
                 return 0;
             }
-        } else if (strcmp(name, "secret") == 0) {
+        }
+        else if (strcmp(name, "secret") == 0)
+        {
             snprintf(config->secret, sizeof(config->secret),
                     "%s", value);
-        } else {
+        }
+        else
+        {
             ERROR("Unknown option %s in section %s", name, section);
             return 0;
         }
-    } else if (strcmp(section, "http") == 0) {
-        if (strcmp(name, "num_workers") == 0) {
+    }
+    else if (strcmp(section, "http") == 0)
+    {
+        if (strcmp(name, "num_workers") == 0)
+        {
             config->num_http_workers = strtol(value, NULL, 10);
-        } else if (strcmp(name, "access_log") == 0) {
+        }
+        else if (strcmp(name, "access_log") == 0)
+        {
             snprintf(config->access_log_file, sizeof(config->access_log_file),
                     "%s", value);
-        } else if (strcmp(name, "error_log") == 0) {
+        }
+        else if (strcmp(name, "error_log") == 0)
+        {
             snprintf(config->error_log_file, sizeof(config->error_log_file),
                     "%s", value);
-        } else if (strcmp(name, "basepath") == 0) {
+        }
+        else if (strcmp(name, "basepath") == 0)
+        {
             snprintf(config->basepath, sizeof(config->basepath),
                     "%s", value);
-        } else if (strcmp(name, "listen") == 0) {
+        }
+        else if (strcmp(name, "listen") == 0)
+        {
             if (strncmp(value, "*:", 2) == 0)
                 value += 2;
             snprintf(config->listen_address, sizeof(config->listen_address),
                     "%s", value);
-        } else if (strcmp(name, "acl_default") == 0) {
-            if (strcmp(value, "allow") == 0) {
+        }
+        else if (strcmp(name, "acl_default") == 0)
+        {
+            if (strcmp(value, "allow") == 0)
+            {
                 config->acl_default = SHCD_ACL_ACTION_ALLOW;
-            } else if (strcmp(value, "deny") == 0) {
+            }
+            else if (strcmp(value, "deny") == 0)
+            {
                 config->acl_default = SHCD_ACL_ACTION_DENY;
-            } else {
+            }
+            else
+            {
                 ERROR("Invalid value %s for option %s (can be only  'allow' or 'deny')",
                         value, name);
                 return 0;
             }
-        } else {
+        }
+        else
+        {
             ERROR("Unknown option %s in section %s", name, section);
             return 0;
         }
-    } else if (strcmp(section, "mime-types") == 0) {
-        if (!mime_types) {
+    }
+    else if (strcmp(section, "mime-types") == 0)
+    {
+        if (!mime_types)
+        {
             mime_types = ht_create(128, 512, free);
         }
         ht_set(mime_types, (void *)name, strlen(name), (void *)strdup(value), strlen(value)+1);
-    } else {
+    }
+    else
+    {
         ERROR("Unknown section %s", section);
         return 0;
     }
@@ -713,31 +800,9 @@ static int parse_nodes_string(char *str, int migration)
     return 0;
 }
 
-int main(int argc, char **argv)
+void parse_cmdline(int argc, char **argv)
 {
-    int i;
     int option_index = 0;
-
-    char *cfgfile = NULL;
-
-    for (i = 1; i < argc-1; i++) {
-        if (strcmp(argv[i], "-c") == 0)
-        {
-            cfgfile = argv[i+1];
-            break;
-        } else if (strncmp(argv[i], "--cfgfile=", 10) == 0) {
-            cfgfile = argv[i]+10;
-            break;
-        }
-    }
-
-    if (cfgfile) {
-        int rc = ini_parse(cfgfile, config_handler, (void *)&config);
-        if (rc != 0) {
-            usage(argv[0], "Can't parse configuration file %s (line %d)\n",
-                    cfgfile, rc);
-        }
-    }
 
     static struct option long_options[] = {
         {"cfgfile", 2, 0, 'c'},
@@ -862,6 +927,35 @@ int main(int argc, char **argv)
                 break;
         }
     }
+}
+
+int main(int argc, char **argv)
+{
+    int i;
+
+    char *cfgfile = NULL;
+
+    for (i = 1; i < argc-1; i++) {
+        if (strcmp(argv[i], "-c") == 0)
+        {
+            cfgfile = argv[i+1];
+            break;
+        } else if (strncmp(argv[i], "--cfgfile=", 10) == 0) {
+            cfgfile = argv[i]+10;
+            break;
+        }
+    }
+
+    if (cfgfile) {
+        int rc = ini_parse(cfgfile, config_handler, (void *)&config);
+        if (rc != 0) {
+            usage(argv[0], "Can't parse configuration file %s (line %d)\n",
+                    cfgfile, rc);
+        }
+    }
+
+    // options provided on cmdline override those defined in the config file
+    parse_cmdline(argc, argv);
 
     if (!config.num_nodes || !config.nodes) {
         usage(argv[0], "Configuring 'nodes' is mandatory!");
