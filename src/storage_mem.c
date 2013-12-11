@@ -67,6 +67,13 @@ st_remove(void *key, size_t len, void *priv)
     return 0;
 }
 
+static int
+st_exist(void *key, size_t len, void *priv)
+{
+    hashtable_t *storage = (hashtable_t *)priv;
+    return (ht_get(storage, key, len, NULL) != NULL)
+}
+
 typedef struct {
     shardcache_storage_index_item_t *index;
     size_t size;
@@ -119,6 +126,7 @@ storage_mem_create(const char **options)
     st->fetch  = st_fetch;
     st->store  = st_store;
     st->remove = st_remove;
+    st->exist  = st_exist;
     st->index  = st_index;
     st->count  = st_count;
 

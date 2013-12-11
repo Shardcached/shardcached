@@ -182,6 +182,26 @@ st_remove(void *key, size_t klen, void *priv)
     return ret;
 }
 
+static int
+st_exist(void *key, size_t klen, void *priv)
+{
+    storage_fs_t *storage = (storage_fs_t *)priv;
+    char *intermediate_dir = NULL;
+    char *fullpath = st_fs_filename(storage->path,
+                                    key,
+                                    klen,
+                                    &intermediate_dir);
+
+
+    struct stat st;
+    int rc = stat(fullpath, &st);
+
+    free(fullpath);
+    free(intermediate_dir);
+    return (rc == 0);
+}
+
+
 static size_t
 st_count(void *priv)
 {
@@ -293,6 +313,7 @@ storage_fs_create(const char **options)
     st->fetch  = st_fetch;
     st->store  = st_store;
     st->remove = st_remove;
+    st->exist  = st_exist;
     st->index  = st_index;
     st->count  = st_count;
 

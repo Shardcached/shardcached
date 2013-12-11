@@ -28,6 +28,7 @@ typedef struct {
     sqlite3_stmt *select_stmt;
     sqlite3_stmt *insert_stmt;
     sqlite3_stmt *delete_stmt;
+    sqlite3_stmt *exist_stmt;
     sqlite3_stmt *count_stmt;
     sqlite3_stmt *index_stmt;
     pthread_mutex_t lock;
@@ -193,6 +194,41 @@ static int st_remove(void *key, size_t klen, void *priv)
     return 0;
 }
 
+static int st_exist(void *key, size_t klen, void *priv) {
+    storage_sqlite_t *st = (storage_sqlite_t *)priv;
+    char* errorMessage;
+
+    char *keystr = malloc((klen*2)+ 1);
+    char *p = (char *)key;
+    char *o = (char *)keystr;
+    int i;
+    for (i = 0; i < klen; i++) {
+        snprintf(o, 3, "%02x", p[i]);
+        o += 2;
+    }
+    *o = 0;
+
+    pthread_mutex_lock(&st->lock);
+    sqlite3_reset(st->exist_stmt);
+    sqlite3_bind_text(st->exist_stmt, 1, keystr, strlen(keystr), SQLITE_STATIC);
+    int rc = sqlite3_step(st->exist_stmt);
+
+    int count;
+    if (rc == SQLITE_ROW) {
+        count = sqlite3_column_int(st->count_stmt, 0);
+    }
+
+    rc = sqlite3_step(st->exist_stmt);
+    if (rc != SQLITE_DONE) {
+        fprintf(stderr, "Exist Failed! %d\n", rc);
+        pthread_mutex_unlock(&st->lock);
+        return -1;
+    }
+
+    pthread_mutex_unlock(&st->lock);
+    return (count == 1);   
+}
+
 static size_t st_count(void *priv)
 {
     storage_sqlite_t *st = (storage_sqlite_t *)priv;
@@ -251,6 +287,7 @@ storage_destroy(shardcache_storage_t *storage)
     sqlite3_finalize(st->select_stmt);
     sqlite3_finalize(st->insert_stmt);
     sqlite3_finalize(st->delete_stmt);
+    sqlite3_finalize(st->exist_stmt);
     sqlite3_finalize(st->count_stmt);
     sqlite3_finalize(st->index_stmt);
     sqlite3_close(st->dbh);
@@ -336,6 +373,12 @@ storage_create(const char **options)
 
     snprintf(sql, sizeof(sql), "DELETE FROM %s WHERE %s = ?", st->table, st->keyfield);
     rc = sqlite3_prepare_v2(st->dbh, sql, 2048, &st->delete_stmt, &tail); 
+    if (rc != SQLITE_OK) {
+        // TODO - Errors
+    }
+
+    snprintf(sql, sizeof(sql), "SELECT COUNT(*) FROM %s WHERE %s = ?", st->table, st->keyfield);
+    rc = sqlite3_prepare_v2(st->dbh, sql, 2048, &st->exist_stmt, &tail); 
     if (rc != SQLITE_OK) {
         // TODO - Errors
     }
