@@ -71,7 +71,7 @@ static int
 st_exist(void *key, size_t len, void *priv)
 {
     hashtable_t *storage = (hashtable_t *)priv;
-    return (ht_get(storage, key, len, NULL) != NULL)
+    return (ht_get(storage, key, len, NULL) != NULL);
 }
 
 typedef struct {
