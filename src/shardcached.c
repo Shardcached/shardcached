@@ -75,6 +75,7 @@ typedef struct {
     int num_http_workers;
     char access_log_file[1024];
     char error_log_file[1024];
+    size_t cache_size;
     int evict_on_delete;
     shcd_acl_action_t acl_default;
     int nohttp;
@@ -99,6 +100,7 @@ static shardcached_config_t config = {
     .num_http_workers = SHARDCACHED_NUM_HTTP_WORKERS_DEFAULT,
     .access_log_file = SHARDCACHED_ACCESS_LOG_DEFAULT,
     .error_log_file = SHARDCACHED_ERROR_LOG_DEFAULT,
+    .cache_size = 1<<20, // 1 GB
     .evict_on_delete = 1,
     .acl_default = SHCD_ACL_ACTION_ALLOW,
     .nohttp = 0
@@ -129,7 +131,8 @@ static void usage(char *progname, char *msg, ...)
            "    -b                    HTTP url basepath\n"
            "    -n <nodes>            list of nodes participating in the shardcache in the form : 'label:address:port,label2:address2:port2'\n"
            "    -m me                 the label of this node, to identify it among the ones participating in the shardcache\n"
-           "    -s                    shared secret used for message signing (defaults to : '%s')\n"
+           "    -s                    cache size in bytes (defaults to : '%d')\n"
+           "    -S                    shared secret used for message signing (defaults to : '%s')\n"
            "    -t <type>             storage type (available are : 'mem' and 'fs' (defaults to '%s')\n"
            "    -o <options>          comma-separated list of storage options (defaults to '%s')\n"
            "    -v                    increase the log level (can be passed multiple times)\n"
@@ -151,6 +154,7 @@ static void usage(char *progname, char *msg, ...)
            , SHARDCACHED_ERROR_LOG_DEFAULT
            , SHARDCACHED_PLUGINS_DIR_DEFAULT
            , SHARDCACHED_STATS_INTERVAL_DEFAULT
+           , 1<<20
            , SHARDCACHED_SECRET_DEFAULT
            , SHARDCACHED_STORAGE_TYPE_DEFAULT
            , SHARDCACHED_STORAGE_OPTIONS_DEFAULT
@@ -694,6 +698,10 @@ int config_handler(void *user,
                 return 0;
             }
         }
+        else if (strcmp(name, "cache_size") == 0)
+        {
+            config->cache_size = strtol(value, NULL, 10);
+        }
         else if (strcmp(name, "secret") == 0)
         {
             snprintf(config->secret, sizeof(config->secret),
@@ -815,7 +823,8 @@ void parse_cmdline(int argc, char **argv)
         {"listen", 2, 0, 'l'},
         {"me", 2, 0, 'm'},
         {"nodes", 2, 0, 'n'},
-        {"secret", 2, 0, 's'},
+        {"size", 2, 0, 's'},
+        {"secret", 2, 0, 'S'},
         {"type", 2, 0, 't'},
         {"options", 2, 0, 'o'},
         {"verbose", 0, 0, 'v'},
@@ -827,7 +836,7 @@ void parse_cmdline(int argc, char **argv)
     };
 
     char c;
-    while ((c = getopt_long (argc, argv, "a:b:c:d:fg:hHi:l:m:n:s:t:o:vw:x:?",
+    while ((c = getopt_long (argc, argv, "a:b:c:d:fg:hHi:l:m:n:s:S:t:o:vw:x:?",
                              long_options, &option_index)))
     {
         if (c == -1) {
@@ -889,6 +898,9 @@ void parse_cmdline(int argc, char **argv)
                 }
                 break;
             case 's':
+                config.cache_size = strtol(optarg, NULL, 10);
+                break;
+            case 'S':
                 snprintf(config.secret,
                         sizeof(config.secret), "%s", optarg);
                 break;
@@ -1017,6 +1029,7 @@ int main(int argc, char **argv)
                                             shcd_storage_get(st),
                                             config.secret,
                                             config.num_workers,
+                                            config.cache_size,
                                             config.evict_on_delete);
 
     if (!cache) {
