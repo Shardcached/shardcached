@@ -330,7 +330,7 @@ static void shardcached_handle_get_request(shardcache_t *cache, struct mg_connec
             mg_write(conn, value, vlen);
             free(value);
         } else {
-            mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\nNot Found");
+            mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
         }
     }
 }
