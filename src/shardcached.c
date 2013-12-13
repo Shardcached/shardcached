@@ -126,6 +126,7 @@ static void usage(char *progname, char *msg, ...)
            "    -e <error_log_file>   the path where to store the error_log file (defaults to '%s')\n"
            "    -d <plugins_path>     the path where to look for storage plugins (defaults to '%s')\n"
            "    -f                    run in foreground\n"
+           "    -H                    disable the HTTP frontend\n"
            "    -i <interval>         change the time interval (in seconds) used to report internal stats via syslog (defaults to '%d')\n"
            "    -l <ip_address:port>  ip_address:port where to listen for incoming http connections\n"
            "    -b                    HTTP url basepath\n"
@@ -792,7 +793,7 @@ static int parse_nodes_string(char *str, int migration)
         if(tok) {
             char *label = strsep(&tok, ":");
             char *addr = tok;
-            if (check_address_string(addr) != 0) {
+            if (!addr || check_address_string(addr) != 0) {
                 ERROR("Bad address format for peer: '%s'", addr);
                 free(copy);
                 return -1;
