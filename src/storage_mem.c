@@ -43,6 +43,7 @@ st_fetch(void *key, size_t len, size_t *vlen, void *priv)
         v = item->value;
         if (vlen) 
             *vlen = item->size;
+        free(item);
     }
     return v;
 }
