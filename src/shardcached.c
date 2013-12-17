@@ -79,6 +79,7 @@ typedef struct {
     int evict_on_delete;
     shcd_acl_action_t acl_default;
     int nohttp;
+    int nostorage;
 } shardcached_config_t;
 
 static shardcached_config_t config = {
@@ -103,7 +104,8 @@ static shardcached_config_t config = {
     .cache_size = 1<<20, // 1 GB
     .evict_on_delete = 1,
     .acl_default = SHCD_ACL_ACTION_ALLOW,
-    .nohttp = 0
+    .nohttp = 0,
+    .nostorage = 0
 };
 
 typedef struct {
@@ -832,12 +834,13 @@ void parse_cmdline(int argc, char **argv)
         {"workers", 2, 0, 'w'},
         {"migrate", 2, 0, 'x'},
         {"nohttp", 0, 0, 'H'},
+        {"nostorage", 0, 0, 'N'},
         {"help", 0, 0, 'h'},
         {0, 0, 0, 0}
     };
 
     char c;
-    while ((c = getopt_long (argc, argv, "a:b:c:d:fg:hHi:l:m:n:s:S:t:o:vw:x:?",
+    while ((c = getopt_long (argc, argv, "a:b:c:d:fg:hHi:l:m:n:Ns:S:t:o:vw:x:?",
                              long_options, &option_index)))
     {
         if (c == -1) {
@@ -897,6 +900,9 @@ void parse_cmdline(int argc, char **argv)
                 if (parse_nodes_string(optarg, 0) != 0) {
                     usage(argv[0], "Bad format : '%s'", optarg);
                 }
+                break;
+            case 'N':
+                config.nostorage = 1;
                 break;
             case 's':
                 config.cache_size = strtol(optarg, NULL, 10);
@@ -1015,19 +1021,22 @@ int main(int argc, char **argv)
 
     log_init("shardcached", config.loglevel);
 
-    shcd_storage_t *st = shcd_storage_init(config.storage_type,
-                                           config.storage_options,
-                                           config.plugins_dir);
-    if (!st) {
-        ERROR("Can't initialize the storage subsystem");
-        exit(-1);
+    shcd_storage_t *st = NULL;
+    if (!config.nostorage) {
+        st = shcd_storage_init(config.storage_type,
+                                               config.storage_options,
+                                               config.plugins_dir);
+        if (!st) {
+            ERROR("Can't initialize the storage subsystem");
+            exit(-1);
+        }
     }
 
     DEBUG("Starting the shardcache engine with %d workers", config.num_workers);
     shardcache_t *cache = shardcache_create(config.me,
                                             config.nodes,
                                             config.num_nodes,
-                                            shcd_storage_get(st),
+                                            st ? shcd_storage_get(st) : NULL,
                                             config.secret,
                                             config.num_workers,
                                             config.cache_size,
@@ -1084,7 +1093,8 @@ int main(int argc, char **argv)
 
     shardcache_destroy(cache);
 
-    shcd_storage_destroy(st);
+    if (st)
+        shcd_storage_destroy(st);
 
     free(config.nodes);
 
