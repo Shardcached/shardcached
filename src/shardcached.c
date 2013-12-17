@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include <stdlib.h>
+#include <jemalloc/jemalloc.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdint.h>
@@ -383,7 +384,7 @@ static void shardcached_handle_put_request(shardcache_t *cache, struct mg_connec
         return;
     }
 
-    char *in = malloc(clen);
+    char *in = je_malloc(clen);
     int rb = 0;
     do {
         int n = mg_read(conn, in+rb, clen-rb);
@@ -400,7 +401,7 @@ static void shardcached_handle_put_request(shardcache_t *cache, struct mg_connec
     
 
     shardcache_set(cache, key, strlen(key), in, rb);
-    free(in);
+    je_free(in);
 
     mg_printf(conn, "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n");
 }
@@ -488,7 +489,7 @@ static void shardcached_run(shardcache_t *cache, uint32_t stats_interval)
                 if (prev) {
                     *prev = counters[i].value;
                 } else {
-                    uint32_t *prev_value = malloc(sizeof(uint32_t));
+                    uint32_t *prev_value = je_malloc(sizeof(uint32_t));
                     *prev_value = counters[i].value;
                     ht_set(prevcounters, counters[i].name,
                            strlen(counters[i].name), prev_value,
@@ -598,7 +599,7 @@ int config_handler(void *user,
     if (strcmp(section, "nodes") == 0)
     {
         config->num_nodes++;
-        config->nodes = realloc(config->nodes, config->num_nodes * sizeof(shardcache_node_t));
+        config->nodes = je_realloc(config->nodes, config->num_nodes * sizeof(shardcache_node_t));
         shardcache_node_t *node = &config->nodes[config->num_nodes-1];
         snprintf(node->label, sizeof(node->label), "%s", name);
         snprintf(node->address, sizeof(node->address), "%s", value);
@@ -802,7 +803,7 @@ static int parse_nodes_string(char *str, int migration)
                 return -1;
             }
             (*num_nodes)++;
-            *nodes = realloc(*nodes, *num_nodes * sizeof(shardcache_node_t));
+            *nodes = je_realloc(*nodes, *num_nodes * sizeof(shardcache_node_t));
             shardcache_node_t *node = &(*nodes)[(*num_nodes)-1];
             snprintf(node->label, sizeof(node->label), "%s", label);
             snprintf(node->address, sizeof(node->address), "%s", addr);
@@ -1097,7 +1098,7 @@ int main(int argc, char **argv)
     if (st)
         shcd_storage_destroy(st);
 
-    free(config.nodes);
+    je_free(config.nodes);
 
     exit(0);
 }

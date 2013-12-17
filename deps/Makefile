@@ -13,18 +13,15 @@ all:
 	    if [ ! -d $$name ]; then \
 		git clone $$i; \
 	    fi; \
-	    export LIBDIR=$(SHARDCACHE_INSTALL_LIBDIR); \
-	    export INCDIR=$(SHARDCACHE_INSTALL_INCDIR); \
 	    export LIBDIR=$(LIBDIR); \
 	    export INCDIR=$(INCDIR); \
 	    export DEPS_INSTALL_DIR=$(DEPS_INSTALL_DIR); \
-	    export CFLAGS="$(CFLAGS) -DHAVE_UINT64_T"; \
 	    make -eC $$name; \
 	    if [ $$? -ne 0 ] ; then exit $$?; fi; \
 	    make -eC $$name install; \
 	done; \
-        cp libshardcache/deps/.incs/* $(DEPS_INSTALL_DIR)/.incs/; \
-        cp libshardcache/deps/.libs/* $(DEPS_INSTALL_DIR)/.libs/
+        cp -R libshardcache/deps/.incs/* $(DEPS_INSTALL_DIR)/.incs/; \
+        cp -R libshardcache/deps/.libs/* $(DEPS_INSTALL_DIR)/.libs/
 
 update:
 	@for i in $(DEPS); do \

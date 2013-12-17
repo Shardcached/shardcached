@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <jemalloc/jemalloc.h>
 #include <string.h>
 #include <log.h>
 #include <hashtable.h>
@@ -14,16 +15,16 @@ free_item_cb(void *ptr)
 {
     stored_item_t *item = (stored_item_t *)ptr;
     if (item->value)
-        free(item->value);
-    free(item);
+        je_free(item->value);
+    je_free(item);
 }
 
 static void *
 copy_item_cb(void *ptr, size_t len)
 {
     stored_item_t *item = (stored_item_t *)ptr;
-    stored_item_t *copy = malloc(sizeof(stored_item_t));
-    copy->value = malloc(item->size);
+    stored_item_t *copy = je_malloc(sizeof(stored_item_t));
+    copy->value = je_malloc(item->size);
     memcpy(copy->value, item->value, item->size);
     copy->size = item->size;
     return copy;
@@ -43,7 +44,7 @@ st_fetch(void *key, size_t len, size_t *vlen, void *priv)
         v = item->value;
         if (vlen) 
             *vlen = item->size;
-        free(item);
+        je_free(item);
     }
     return v;
 }
@@ -52,8 +53,8 @@ static int
 st_store(void *key, size_t len, void *value, size_t vlen, void *priv)
 {
     hashtable_t *storage = (hashtable_t *)priv;
-    stored_item_t *new_item = malloc(sizeof(stored_item_t));
-    new_item->value = malloc(vlen);
+    stored_item_t *new_item = je_malloc(sizeof(stored_item_t));
+    new_item->value = je_malloc(vlen);
     memcpy(new_item->value, value, vlen);
     new_item->size = vlen;
     ht_set(storage, key, len, new_item, sizeof(stored_item_t));
@@ -101,7 +102,7 @@ st_pair_iterator(hashtable_t *table,
         shardcache_storage_index_item_t *index_item;
         
         index_item = &arg->index[arg->offset++];
-        index_item->key = malloc(klen);
+        index_item->key = je_malloc(klen);
         memcpy(index_item->key, key, klen);
         index_item->klen = klen;
         stored_item_t *item = (stored_item_t *)value;
@@ -123,7 +124,7 @@ st_index(shardcache_storage_index_item_t *index, size_t isize, void *priv)
 shardcache_storage_t *
 storage_mem_create(const char **options)
 {
-    shardcache_storage_t *st = calloc(1, sizeof(shardcache_storage_t));
+    shardcache_storage_t *st = je_calloc(1, sizeof(shardcache_storage_t));
     st->fetch  = st_fetch;
     st->store  = st_store;
     st->remove = st_remove;
@@ -169,5 +170,5 @@ storage_mem_destroy(shardcache_storage_t *st)
 {
     hashtable_t *storage = (hashtable_t *)st->priv;
     ht_destroy(storage);
-    free(st);
+    je_free(st);
 }

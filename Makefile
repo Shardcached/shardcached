@@ -4,7 +4,8 @@ DEPS += deps/.libs/libshardcache.a \
         deps/.libs/libiomux.a \
         deps/.libs/libhl.a \
         deps/.libs/libchash.a \
-        deps/.libs/libsiphash.a
+        deps/.libs/libsiphash.a \
+        deps/.libs/libjemalloc.a
 
 LDFLAGS += -L. -ldl
 
