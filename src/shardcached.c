@@ -133,6 +133,7 @@ static void usage(char *progname, char *msg, ...)
            "    -l <ip_address:port>  ip_address:port where to listen for incoming http connections\n"
            "    -b                    HTTP url basepath\n"
            "    -n <nodes>            list of nodes participating in the shardcache in the form : 'label:address:port,label2:address2:port2'\n"
+           "    -N                    no storage subsystem, use only the internal libshardcache volatile storage\n"
            "    -m me                 the label of this node, to identify it among the ones participating in the shardcache\n"
            "    -s                    cache size in bytes (defaults to : '%d')\n"
            "    -S                    shared secret used for message signing (defaults to : '%s')\n"
