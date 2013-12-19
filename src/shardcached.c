@@ -237,7 +237,8 @@ static void shardcached_build_stats_response(fbuf_t *buf, int do_html, shardcach
                     "</tr>"
                     "<tr bgcolor='#ffffff'>"
                     "<td>active_http_requests</td>"
-                    "<td>%d</td>",
+                    "<td>%d</td>"
+                    "</tr>",
                       __sync_fetch_and_add(&shcd_active_requests, 0));
     } else {
         fbuf_printf(buf,
@@ -253,7 +254,7 @@ static void shardcached_build_stats_response(fbuf_t *buf, int do_html, shardcach
     for (i = 0; i < ncounters; i++) {
         if (do_html)
             fbuf_printf(buf,
-                        "<tr bgcolor='#ffffff'><td>%s</td><td>%u</td>",
+                        "<tr bgcolor='#ffffff'><td>%s</td><td>%u</td></tr>",
                         counters[i].name,
                         counters[i].value);
         else
