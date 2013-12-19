@@ -228,6 +228,7 @@ static void shardcached_build_stats_response(fbuf_t *buf, int do_html, shardcach
     if (do_html) {
         fbuf_printf(buf,
                     "<html><body>"
+                    "<h1>%s</h1>"
                     "<table bgcolor='#000000' "
                     "cellspacing='1' "
                     "cellpadding='4'>"
@@ -238,12 +239,19 @@ static void shardcached_build_stats_response(fbuf_t *buf, int do_html, shardcach
                     "<tr bgcolor='#ffffff'>"
                     "<td>active_http_requests</td>"
                     "<td>%d</td>"
+                    "</tr>"
+                    "<tr bgcolor='#ffffff'>"
+                    "<td>num_nodes</td>"
+                    "<td>%d</td>"
                     "</tr>",
-                      __sync_fetch_and_add(&shcd_active_requests, 0));
+                    config.me,
+                    __sync_fetch_and_add(&shcd_active_requests, 0),
+                    config.num_nodes);
     } else {
         fbuf_printf(buf,
-                    "active_http_requests;%d\r\n",
-                    __sync_fetch_and_add(&shcd_active_requests, 0));
+                    "active_http_requests;%d\r\nnum_nodes;%d\r\n",
+                    __sync_fetch_and_add(&shcd_active_requests, 0),
+                    config.num_nodes);
     }
 
 
