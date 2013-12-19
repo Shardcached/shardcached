@@ -5,12 +5,12 @@ DEPS += deps/.libs/libshardcache.a \
         deps/.libs/libhl.a \
         deps/.libs/libchash.a \
         deps/.libs/libsiphash.a \
-        deps/.libs/libjemalloc.a
+        deps/.libs/libjemalloc_pic.a
 
 LDFLAGS += -L. -ldl
 
 ifeq ($(UNAME), Linux)
-LDFLAGS += -pthread
+LDFLAGS += -pthread -lm
 else
 LDFLAGS +=
 CFLAGS += -Wno-deprecated-declarations
