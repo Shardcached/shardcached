@@ -13,12 +13,10 @@ all:
 	    if [ ! -d "$$name" ]; then \
 		git clone $$i; \
 	    fi; \
-	    export LIBDIR=$(SHARDCACHE_INSTALL_LIBDIR); \
-	    export INCDIR=$(SHARDCACHE_INSTALL_INCDIR); \
-	    export LIBDIR=$(LIBDIR); \
-	    export INCDIR=$(INCDIR); \
+	    export LIBDIR="$(LIBDIR)"; \
+	    export INCDIR="$(INCDIR)"; \
 	    export DEPS_INSTALL_DIR=$(DEPS_INSTALL_DIR); \
-	    export CFLAGS="$(CFLAGS) -DHAVE_UINT64_T"; \
+	    export CFLAGS="$(CFLAGS)"; \
 	    make -eC $$name; \
 	    if [ $$? -ne 0 ] ; then exit $$?; fi; \
 	    make -eC $$name install; \
