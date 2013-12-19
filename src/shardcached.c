@@ -201,9 +201,25 @@ static void shardcached_build_index_response(fbuf_t *buf, int do_html, shardcach
     }
     for (i = 0; i < index->size; i++) {
         size_t klen = index->items[i].klen;
-        char keystr[klen+1];
-        memcpy(keystr, index->items[i].key, klen);
-        keystr[klen] = 0;
+        char keystr[klen * 5 + 1];
+        char *t = keystr;
+        char c;
+        for (int p = 0 ; p < klen ; ++p) {
+            c = ((char*)index->items[i].key)[p];
+            if (c == '<')
+                t = stpcpy(t, "&lt;");
+            else if (c == '>')
+                t = stpcpy(t, "&gt;");
+            else if (c == '&')
+                t = stpcpy(t, "&amp;");
+            else if (c < ' ') {
+                sprintf(t, "\\x%2x", (int)c);
+                t += 4;
+            }
+            else
+                *t++ = c;
+        }
+        *t = 0;
         if (do_html)
             fbuf_printf(buf,
                         "<tr bgcolor='#ffffff'><td>%s</td>"
