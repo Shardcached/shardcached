@@ -141,7 +141,7 @@ static void usage(char *progname, char *msg, ...)
            "    -o <options>          comma-separated list of storage options (defaults to '%s')\n"
            "    -v                    increase the log level (can be passed multiple times)\n"
            "    -w <num_workers>      number of shardcache worker threads (defaults to '%d')\n"
-           "    -x <nodes>            new list of nodes to migrate the shardcache to. The format to use is the same of the '-n' option\n"
+           "    -x <nodes>            new list of nodes to migrate the shardcache to. The format to use is the same than for the '-n' option\n"
            "\n"
            "       Builtin storage types:\n"
            "         * mem            memory based storage\n"

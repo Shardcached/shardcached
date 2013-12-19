@@ -42,7 +42,7 @@ Usage: shardcached [OPTION]...
     -o <options>          comma-separated list of storage options (defaults to '')
     -v                    increase the log level (can be passed multiple times)
     -w <num_workers>      number of shardcache worker threads (defaults to '50')
-    -x <nodes>            new list of nodes to migrate the shardcache to. The format to use is the same of the '-n' option
+    -x <nodes>            new list of nodes to migrate the shardcache to. The format to use is the same than for the '-n' option
 
     Builtin storage types:
         * mem            memory based storage
