@@ -1,8 +1,9 @@
-all: sqlite.so
+TARGET=sqlite.storage
 
-sqlite.so:
-	$(CC) $(CFLAGS) $(LDFLAGS) -I../../deps/.incs -L../../deps/.libs -fPIC -shared sqlite.c -o sqlite.storage -lsqlite3
+all: $(TARGET)
+
+$(TARGET):
+	$(CC) $(CFLAGS) $(LDFLAGS) -I../../deps/.incs -L../../deps/.libs -fPIC -shared sqlite.c -o $(TARGET) -lsqlite3
 
 clean:
-	@rm sqlite.storage
-
+	@rm $(TARGET)
