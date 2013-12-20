@@ -204,7 +204,8 @@ static void shardcached_build_index_response(fbuf_t *buf, int do_html, shardcach
         char keystr[klen * 5 + 1];
         char *t = keystr;
         char c;
-        for (int p = 0 ; p < klen ; ++p) {
+        int p;
+        for (p = 0 ; p < klen ; ++p) {
             c = ((char*)index->items[i].key)[p];
             if (c == '<')
                 t = stpcpy(t, "&lt;");
