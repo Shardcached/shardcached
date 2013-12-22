@@ -243,6 +243,9 @@ static void shardcached_build_index_response(fbuf_t *buf, int do_html, shardcach
 
 static void shardcached_build_stats_response(fbuf_t *buf, int do_html, shardcache_t *cache)
 {
+    int i;
+    int num_nodes = 0;
+    shardcache_node_t *nodes = shardcache_get_nodes(cache, &num_nodes);
     if (do_html) {
         fbuf_printf(buf,
                     "<html><body>"
@@ -264,19 +267,31 @@ static void shardcached_build_stats_response(fbuf_t *buf, int do_html, shardcach
                     "</tr>",
                     config.me,
                     __sync_fetch_and_add(&shcd_active_requests, 0),
-                    config.num_nodes);
+                    num_nodes);
+
+        for (i = 0; i < num_nodes; i++) {
+            fbuf_printf(buf,
+                        "<tr bgcolor='#ffffff'>"
+                        "<td>node::%s</td><td>%s</td>"
+                        "</td></tr>",
+                        nodes[i].label, nodes[i].address);
+        }
     } else {
         fbuf_printf(buf,
                     "active_http_requests;%d\r\nnum_nodes;%d\r\n",
                     __sync_fetch_and_add(&shcd_active_requests, 0),
-                    config.num_nodes);
+                    num_nodes);
+        for (i = 0; i < num_nodes; i++) {
+            fbuf_printf(buf, "node::%s;%s\r\n", nodes[i].label, nodes[i].address);
+        }
     }
 
+    if (nodes)
+        free(nodes);
 
     shardcache_counter_t *counters;
     int ncounters = shardcache_get_counters(cache, &counters);
 
-    int i;
     for (i = 0; i < ncounters; i++) {
         if (do_html)
             fbuf_printf(buf,
