@@ -614,6 +614,41 @@ int config_acl(char *pattern, char *aclstr)
     return shcd_acl_add(http_acl, pattern, action, method, ntohl(ip.s_addr), mask);
 }
 
+static int config_listening_address(char *addr_string, shardcached_config_t *config)
+{
+    if (strncmp(addr_string, "*:", 2) == 0)
+        addr_string += 2;
+
+    if (!*addr_string)
+        return 0;
+
+    char *v = strdup(addr_string);
+    char *f = v;
+    char *addr = strsep(&v, ":");
+    char *port = v;
+    if (!port) {
+        port = addr;
+        addr = NULL;
+    }
+    if (addr && *addr) {
+       struct hostent *h = gethostbyname(addr);
+        if (!h) {
+            fprintf(stderr, "Can't resolve address for hostname : %s\n", addr);
+            return 0;
+        }
+        struct in_addr **addr_list = (struct in_addr **)h->h_addr_list;
+        if (addr_list[0] != NULL)
+            addr = inet_ntoa(*addr_list[0]);
+        snprintf(config->listen_address,
+            sizeof(config->listen_address), "%s:%s", addr, port);
+    } else {
+        snprintf(config->listen_address,
+            sizeof(config->listen_address), "%s", port);
+    }
+    free(f);
+    return 1;
+}
+
 int config_handler(void *user,
                    const char *section,
                    const char *name,
@@ -633,7 +668,7 @@ int config_handler(void *user,
     {
         if (config_acl((char *)name, (char *)value) != 0)
         {
-            ERROR("Errors configuring acl : %s = %s", name, value);
+            fprintf(stderr, "Errors configuring acl : %s = %s\n", name, value);
             return 0;
         }
     }
@@ -673,7 +708,7 @@ int config_handler(void *user,
                        strcasecmp(value, "true") &&
                        b != 1)
             {
-                ERROR("Invalid value %s for option %s", value, name);
+                fprintf(stderr, "Invalid value %s for option %s\n", value, name);
                 return 0;
             }
         }
@@ -695,14 +730,14 @@ int config_handler(void *user,
                      strcasecmp(value, "false") &&
                      b != 1)
             {
-                ERROR("Invalid value %s for option %s", value, name);
+                fprintf(stderr, "Invalid value %s for option %s\n", value, name);
                 return 0;
             }
 
         }
         else
         {
-            ERROR("Unknown option %s in section %s", name, section);
+            fprintf(stderr, "Unknown option %s in section %s\n", name, section);
             return 0;
         }
     }
@@ -724,7 +759,7 @@ int config_handler(void *user,
                        strcasecmp(value, "false") &&
                        b != 0)
             {
-                ERROR("Invalid value %s for option %s", value, name);
+                fprintf(stderr, "Invalid value %s for option %s\n", value, name);
                 return 0;
             }
         }
@@ -739,7 +774,7 @@ int config_handler(void *user,
         }
         else
         {
-            ERROR("Unknown option %s in section %s", name, section);
+            fprintf(stderr, "Unknown option %s in section %s\n", name, section);
             return 0;
         }
     }
@@ -766,10 +801,11 @@ int config_handler(void *user,
         }
         else if (strcmp(name, "listen") == 0)
         {
-            if (strncmp(value, "*:", 2) == 0)
-                value += 2;
-            snprintf(config->listen_address, sizeof(config->listen_address),
-                    "%s", value);
+            if (!config_listening_address((char *)value, config)) {
+                fprintf(stderr, "Can't use the listening address %s\n", value);
+                return 0;
+            }
+
         }
         else if (strcmp(name, "acl_default") == 0)
         {
@@ -783,14 +819,14 @@ int config_handler(void *user,
             }
             else
             {
-                ERROR("Invalid value %s for option %s (can be only  'allow' or 'deny')",
+                fprintf(stderr, "Invalid value %s for option %s (can be only  'allow' or 'deny')\n",
                         value, name);
                 return 0;
             }
         }
         else
         {
-            ERROR("Unknown option %s in section %s", name, section);
+            fprintf(stderr, "Unknown option %s in section %s\n", name, section);
             return 0;
         }
     }
@@ -804,7 +840,7 @@ int config_handler(void *user,
     }
     else
     {
-        ERROR("Unknown section %s", section);
+        fprintf(stderr, "Unknown section %s\n", section);
         return 0;
     }
     return 1;
@@ -907,10 +943,9 @@ void parse_cmdline(int argc, char **argv)
                 config.stats_interval = strtol(optarg, NULL, 10);
                 break;
             case 'l':
-                if (strncmp(optarg, "*:", 2) == 0)
-                    optarg += 2;
-                snprintf(config.listen_address,
-                        sizeof(config.listen_address), "%s", optarg);
+                if (!config_listening_address(optarg, &config)) {
+                    usage(argv[0], "Can't use the listening address : %s\n", optarg);
+                }
                 break;
             case 'm':
                 snprintf(config.me,
