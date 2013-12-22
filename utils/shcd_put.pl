@@ -4,6 +4,7 @@ use strict;
 use HTTP::Request;
 use LWP;
 use File::Slurp;
+use URI::Escape;
 
 $ENV{PERL_LWP_ENV_PROXY} = 1
     if ($ENV{http_proxy});
@@ -17,14 +18,15 @@ die "Usage: $0 </path/to/input_file> <key> [<hosts>]" unless($key && $input_file
 my @hosts_array = split(',', $hosts);
 my $host = $hosts_array[int(rand(scalar(@hosts_array)))];
 
-$host = "http://$host" if ($host !~ /^http:\/\//i);
+$host =~ s/^http:\/\///;
 $host =~ s/\/+$//;
 
 print "Using host $host : ";
  
 my $data = read_file($input_file);
 my $req_headers = HTTP::Headers->new( 'Content-Length' => length($data) );
-my $request = HTTP::Request->new("PUT", "$host/$key", $req_headers, $data);
+my $path = uri_escape($key);
+my $request = HTTP::Request->new("PUT", "http://$host/$path", $req_headers, $data);
 
 my $ua = LWP::UserAgent->new;
 my $response = $ua->request($request);
