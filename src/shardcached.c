@@ -124,8 +124,9 @@ static void usage(char *progname, char *msg, ...)
 
     printf("Usage: %s [OPTION]...\n"
            "Possible options:\n"
-           "    -a <access_log_file>  the path where to store the access_log file (detaults to '%s')\n"
+           "    -a <access_log_file>  the path where to store the access_log file (defaults to '%s')\n"
            "    -e <error_log_file>   the path where to store the error_log file (defaults to '%s')\n"
+           "    -c <config_file>      the config file to load\n"
            "    -d <plugins_path>     the path where to look for storage plugins (defaults to '%s')\n"
            "    -f                    run in foreground\n"
            "    -H                    disable the HTTP frontend\n"
@@ -141,7 +142,7 @@ static void usage(char *progname, char *msg, ...)
            "    -o <options>          comma-separated list of storage options (defaults to '%s')\n"
            "    -v                    increase the log level (can be passed multiple times)\n"
            "    -w <num_workers>      number of shardcache worker threads (defaults to '%d')\n"
-           "    -x <nodes>            new list of nodes to migrate the shardcache to. The format to use is the same than for the '-n' option\n"
+           "    -x <nodes>            new list of nodes to migrate the shardcache to. The format to use is the same as for the '-n' option\n"
            "\n"
            "       Builtin storage types:\n"
            "         * mem            memory based storage\n"
@@ -151,7 +152,7 @@ static void usage(char *progname, char *msg, ...)
            "\n"
            "         * fs             filesystem based storage\n"
            "            Options:\n"
-           "              - storage_path=<path>          the parh where to store the keys/values on the filesystem\n"
+           "              - storage_path=<path>          the path where to store the keys/values on the filesystem\n"
            "              - tmp_path=<path>              the path to a temporary directory to use while new data is being uploaded\n"
            , progname
            , SHARDCACHED_ACCESS_LOG_DEFAULT
