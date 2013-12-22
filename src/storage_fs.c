@@ -384,6 +384,8 @@ storage_fs_create(const char **options)
         }
     } else {
         ERROR("No storage path defined");
+        free(st);
+        return NULL;
     }
     storage->index = ht_create(1<<16, 0, free);
     storage_fs_walk_and_fill_index(storage->path, storage->index);
