@@ -634,6 +634,7 @@ static int config_listening_address(char *addr_string, shardcached_config_t *con
        struct hostent *h = gethostbyname(addr);
         if (!h) {
             fprintf(stderr, "Can't resolve address for hostname : %s\n", addr);
+            free(f);
             return 0;
         }
         struct in_addr **addr_list = (struct in_addr **)h->h_addr_list;
