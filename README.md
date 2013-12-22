@@ -5,13 +5,13 @@ C implementation of a full-featured [shardcache](http://github.com/xant/libshard
 
 shardcached implements an http frontend exposing all functionalities provided by [libshardcache](http://github.com/xant/libshardcache "libshardcache").
 
- * the internal counters and the storage index are exposed through the 'magic' keys (urls) :'__index__' and '__stats__'.
+ * the internal counters and the storage index are exposed through the 'magic' keys (urls) : `__index__` and `__stats__`.
 
- * allows to define ACLs to control which ip addresses can access which keys (including the internal keys __index__ and __stats__)
+ * allows to define ACLs to control which IP addresses can access which keys (including the internal keys `__index__` and `__stats__`)
 
  * supports mime-types rules to use when serving back items via the http frontend
 
- * pluggable storage backend (and sqlite storage plugin has been already implemented and provided as example
+ * pluggable storage backend (and sqlite storage plugin has been already implemented and provided as an example)
 
  * provides builtin storage modules for both volatile (mem-based) and persistent (filesystem-based) storage
 
@@ -20,7 +20,7 @@ shardcached implements an http frontend exposing all functionalities provided by
 
 
 NOTE: Almost all options can be controlled/overridden via the cmdline,
-      ACLs and mime-types rules are supported only via the configuration file
+      ACLs and mime-types rules are supported only via the configuration file.
 
 
 ===============================================================================================================================
