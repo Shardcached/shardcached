@@ -341,12 +341,17 @@ storage_fs_create(const char **options)
             }
         }
     }
+
     if (storage_path) {
         struct stat s;
         if (stat(storage_path, &s) != 0) {
             if (mkdir(storage_path, S_IRWXU) != 0) {
                 ERROR("Can't create storage path %s: %s",
                         storage_path, strerror(errno));
+                free(storage_path);
+                if (tmp_path)
+                    free(tmp_path);
+                free(st);
                 return NULL;
             }
             NOTICE("Created storage path: %s", storage_path);
@@ -356,8 +361,7 @@ storage_fs_create(const char **options)
         if (check != 0) {
             ERROR("Can't access the storage path %s : %s",
                     storage_path, strerror(errno));
-            if (storage_path)
-                free(storage_path);
+            free(storage_path);
             if (tmp_path)
                 free(tmp_path);
             free(st);
@@ -366,24 +370,24 @@ storage_fs_create(const char **options)
 
         storage = calloc(1, sizeof(storage_fs_t));
         storage->path = storage_path;
-        if (tmp_path)
-            storage->tmp = tmp_path;
-        else
-            storage->tmp = strdup("/tmp");
+        if (!tmp_path) {
+            tmp_path = strdup("/tmp");
+        }
+        storage->tmp = tmp_path;
         check = access(storage->tmp, R_OK|W_OK);
         if (check != 0) {
             ERROR("Can't access the temporary path %s : %s",
                     storage->tmp, strerror(errno));
             free(storage);
+            free(storage_path);
+            free(tmp_path);
             free(st);
-            if (storage_path)
-                free(storage_path);
-            if (tmp_path)
-                free(tmp_path);
             return NULL;
         }
     } else {
         ERROR("No storage path defined");
+        if (tmp_path)
+            free(tmp_path);
         free(st);
         return NULL;
     }
