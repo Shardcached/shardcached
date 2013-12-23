@@ -304,9 +304,10 @@ static void shardcached_build_stats_response(fbuf_t *buf, int do_html, shardcach
     free(counters);
 }
 
-static void shardcached_handle_get_request(shardcache_t *cache, struct mg_connection *conn, char *key)
+static void shardcached_handle_get_request(shardcache_t *cache, struct mg_connection *conn, char *key, int is_head)
 {
     struct mg_request_info *request_info = mg_get_request_info(conn);
+
 
     if (http_acl) {
         shcd_acl_method_t method = SHCD_ACL_METHOD_GET;
@@ -327,10 +328,12 @@ static void shardcached_handle_get_request(shardcache_t *cache, struct mg_connec
                         "Content-Type: text/%s\r\n"
                         "Content-length: %d\r\n"
                         "Server: shardcached\r\n"
-                        "Connection: Close\r\n\r\n%s",
+                        "Connection: Close\r\n\r\n",
                         do_html ? "html" : "plain",
-                        fbuf_used(&buf),
-                        fbuf_data(&buf));
+                        fbuf_used(&buf));
+
+        if (!is_head)
+            mg_printf(conn, "%s", fbuf_data(&buf));
 
         fbuf_destroy(&buf);
 
@@ -345,16 +348,25 @@ static void shardcached_handle_get_request(shardcache_t *cache, struct mg_connec
                         "Content-Type: text/%s\r\n"
                         "Content-length: %d\r\n"
                         "Server: shardcached\r\n"
-                        "Connection: Close\r\n\r\n%s",
+                        "Connection: Close\r\n\r\n",
                         do_html ? "html" : "plain",
-                        fbuf_used(&buf),
-                        fbuf_data(&buf));
+                        fbuf_used(&buf));
+
+        if (!is_head)
+            mg_printf(conn, "%s", fbuf_data(&buf));
 
         fbuf_destroy(&buf);
     } else {
         size_t vlen = 0;
-        void *value = shardcache_get(cache, key, strlen(key), &vlen, NULL);
-        if (value) {
+        struct timeval ts;
+        void *value = NULL;
+        if (is_head) {
+            vlen = shardcache_head(cache, key, strlen(key), NULL, 0, &ts);
+        } else {
+            value = shardcache_get(cache, key, strlen(key), &vlen, &ts);
+        }
+
+        if (vlen) {
             char *mtype = "application/octet-stream";
             if (mime_types) {
                 char *p = key;
@@ -367,13 +379,21 @@ static void shardcached_handle_get_request(shardcache_t *cache, struct mg_connec
                         mtype = mt;
                 }
             }
+            char timestamp[256];
+            struct tm gmts;
+            strftime(timestamp, sizeof(timestamp), "%a, %d %b %Y %T %z", gmtime_r(&ts.tv_sec, &gmts));
             mg_printf(conn, "HTTP/1.0 200 OK\r\n"
                             "Content-Type: %s\r\n"
                             "Content-length: %d\r\n"
+                            "Last-Modified: %s\r\n"
                             "Server: shardcached\r\n"
-                            "Connection: Close\r\n\r\n", mtype, (int)vlen);
-            mg_write(conn, value, vlen);
-            free(value);
+                            "Connection: Close\r\n\r\n", mtype, (int)vlen, timestamp);
+
+            if (!is_head && value)
+                mg_write(conn, value, vlen);
+
+            if (value)
+                free(value);
         } else {
             mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
         }
@@ -473,7 +493,9 @@ static int shardcached_request_handler(struct mg_connection *conn)
 
     // handle the actual GET/PUT/DELETE request
     if (strncasecmp(request_info->request_method, "GET", 3) == 0)
-        shardcached_handle_get_request(cache, conn, key);
+        shardcached_handle_get_request(cache, conn, key, 0);
+    else if (strncasecmp(request_info->request_method, "HEAD", 4) == 0)
+        shardcached_handle_get_request(cache, conn, key, 1);
     else if (strncasecmp(request_info->request_method, "DELETE", 6) == 0)
         shardcached_handle_delete_request(cache, conn, key);
     else if (strncasecmp(request_info->request_method, "PUT", 3) == 0)
