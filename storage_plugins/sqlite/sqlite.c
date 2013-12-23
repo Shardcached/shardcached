@@ -125,6 +125,7 @@ static void *st_fetch(void *key, size_t klen, size_t *vlen, void *priv)
     if (!data && vlen)
         *vlen = 0;
 
+    free(keystr);
     return data;
 }
 
@@ -156,10 +157,12 @@ static int st_store(void *key, size_t klen, void *value, size_t vlen, void *priv
     if (rc != SQLITE_DONE) {
         fprintf(stderr, "Insert Failed! %d\n", rc);
         pthread_mutex_unlock(&st->lock);
+        free(keystr);
         return -1;
     }
 
     pthread_mutex_unlock(&st->lock);
+    free(keystr);
     return 0;
 }
 
@@ -187,10 +190,12 @@ static int st_remove(void *key, size_t klen, void *priv)
     if (rc != SQLITE_DONE) {
         fprintf(stderr, "Delete Failed! %d\n", rc);
         pthread_mutex_unlock(&st->lock);
+        free(keystr);
         return -1;
     }
 
     pthread_mutex_unlock(&st->lock);
+    free(keystr);
     return 0;
 }
 
@@ -222,10 +227,12 @@ static int st_exist(void *key, size_t klen, void *priv) {
     if (rc != SQLITE_DONE) {
         fprintf(stderr, "Exist Failed! %d\n", rc);
         pthread_mutex_unlock(&st->lock);
+        free(keystr);
         return -1;
     }
 
     pthread_mutex_unlock(&st->lock);
+    free(keystr);
     return (count == 1);   
 }
 
