@@ -108,11 +108,6 @@ static shardcached_config_t config = {
     .nostorage = 0
 };
 
-typedef struct {
-    void *value;
-    size_t size;
-} shardcached_stored_item;
-
 static void usage(char *progname, char *msg, ...)
 {
     if (msg) {
@@ -358,7 +353,7 @@ static void shardcached_handle_get_request(shardcache_t *cache, struct mg_connec
         fbuf_destroy(&buf);
     } else {
         size_t vlen = 0;
-        void *value = shardcache_get(cache, key, strlen(key), &vlen);
+        void *value = shardcache_get(cache, key, strlen(key), &vlen, NULL);
         if (value) {
             char *mtype = "application/octet-stream";
             if (mime_types) {
