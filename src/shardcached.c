@@ -59,6 +59,7 @@ static hashtable_t *mime_types = NULL;
 typedef struct {
     char me[256];
     char basepath[256];
+    char baseadminpath[256];
     int foreground;
     int loglevel;
     char listen_address[256];
@@ -85,6 +86,7 @@ typedef struct {
 static shardcached_config_t config = {
     .me = "",
     .basepath = "",
+    .baseadminpath = "",
     .foreground = 0,
     .loglevel = SHARDCACHED_LOGLEVEL_DEFAULT,
     .listen_address = SHARDCACHED_ADDRESS_DEFAULT,
@@ -127,7 +129,8 @@ static void usage(char *progname, char *msg, ...)
            "    -H                    disable the HTTP frontend\n"
            "    -i <interval>         change the time interval (in seconds) used to report internal stats via syslog (defaults to '%d')\n"
            "    -l <ip_address:port>  ip_address:port where to listen for incoming http connections\n"
-           "    -b                    HTTP url basepath\n"
+           "    -b                    HTTP url basepath (optional, defaults to "")\n"
+           "    -B                    HTTP url baseadminpath (optional, defaults to "")\n"
            "    -n <nodes>            list of nodes participating in the shardcache in the form : 'label:address:port,label2:address2:port2'\n"
            "    -N                    no storage subsystem, use only the internal libshardcache volatile storage\n"
            "    -m me                 the label of this node, to identify it among the ones participating in the shardcache\n"
@@ -304,10 +307,9 @@ static void shardcached_build_stats_response(fbuf_t *buf, int do_html, shardcach
     free(counters);
 }
 
-static void shardcached_handle_get_request(shardcache_t *cache, struct mg_connection *conn, char *key, int is_head)
+static void shardcached_handle_admin_request(shardcache_t *cache, struct mg_connection *conn, char *key, int is_head)
 {
     struct mg_request_info *request_info = mg_get_request_info(conn);
-
 
     if (http_acl) {
         shcd_acl_method_t method = SHCD_ACL_METHOD_GET;
@@ -356,47 +358,78 @@ static void shardcached_handle_get_request(shardcache_t *cache, struct mg_connec
             mg_printf(conn, "%s", fbuf_data(&buf));
 
         fbuf_destroy(&buf);
+    } else if (strcmp(key, "__health__") == 0) {
+        int do_html = (!request_info->query_string ||
+                       !strstr(request_info->query_string, "nohtml=1"));
+
+        char *resp = do_html ? "<html><body>OK</body></html>" : "OK";
+
+        mg_printf(conn, "HTTP/1.0 200 OK\r\n"
+                        "Content-Type: text/%s\r\n"
+                        "Content-length: %lu\r\n"
+                        "Server: shardcached\r\n"
+                        "Connection: Close\r\n\r\n",
+                        do_html ? "html" : "plain",
+                        strlen(resp));
+
+        if (!is_head)
+            mg_printf(conn, "%s", resp);
     } else {
-        size_t vlen = 0;
-        struct timeval ts;
-        void *value = NULL;
-        if (is_head) {
-            vlen = shardcache_head(cache, key, strlen(key), NULL, 0, &ts);
-        } else {
-            value = shardcache_get(cache, key, strlen(key), &vlen, &ts);
-        }
+        mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
+    }
+}
 
-        if (vlen) {
-            char *mtype = "application/octet-stream";
-            if (mime_types) {
-                char *p = key;
-                while (*p && *p != '.')
-                    p++;
-                if (*p && *(p+1)) {
-                    p++;
-                    char *mt = (char *)ht_get(mime_types, p, strlen(p), NULL);
-                    if (mt)
-                        mtype = mt;
-                }
+static void shardcached_handle_get_request(shardcache_t *cache, struct mg_connection *conn, char *key, int is_head)
+{
+    struct mg_request_info *request_info = mg_get_request_info(conn);
+
+    if (http_acl) {
+        shcd_acl_method_t method = SHCD_ACL_METHOD_GET;
+        if (shcd_acl_eval(http_acl, method, key, request_info->remote_ip) != SHCD_ACL_ACTION_ALLOW) {
+            mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
+            return;
+        }
+    }
+
+    size_t vlen = 0;
+    struct timeval ts;
+    void *value = NULL;
+    if (is_head) {
+        vlen = shardcache_head(cache, key, strlen(key), NULL, 0, &ts);
+    } else {
+        value = shardcache_get(cache, key, strlen(key), &vlen, &ts);
+    }
+
+    if (vlen) {
+        char *mtype = "application/octet-stream";
+        if (mime_types) {
+            char *p = key;
+            while (*p && *p != '.')
+                p++;
+            if (*p && *(p+1)) {
+                p++;
+                char *mt = (char *)ht_get(mime_types, p, strlen(p), NULL);
+                if (mt)
+                    mtype = mt;
             }
-            char timestamp[256];
-            struct tm gmts;
-            strftime(timestamp, sizeof(timestamp), "%a, %d %b %Y %T %z", gmtime_r(&ts.tv_sec, &gmts));
-            mg_printf(conn, "HTTP/1.0 200 OK\r\n"
-                            "Content-Type: %s\r\n"
-                            "Content-length: %d\r\n"
-                            "Last-Modified: %s\r\n"
-                            "Server: shardcached\r\n"
-                            "Connection: Close\r\n\r\n", mtype, (int)vlen, timestamp);
-
-            if (!is_head && value)
-                mg_write(conn, value, vlen);
-
-            if (value)
-                free(value);
-        } else {
-            mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
         }
+        char timestamp[256];
+        struct tm gmts;
+        strftime(timestamp, sizeof(timestamp), "%a, %d %b %Y %T %z", gmtime_r(&ts.tv_sec, &gmts));
+        mg_printf(conn, "HTTP/1.0 200 OK\r\n"
+                        "Content-Type: %s\r\n"
+                        "Content-length: %d\r\n"
+                        "Last-Modified: %s\r\n"
+                        "Server: shardcached\r\n"
+                        "Connection: Close\r\n\r\n", mtype, (int)vlen, timestamp);
+
+        if (!is_head && value)
+            mg_write(conn, value, vlen);
+
+        if (value)
+            free(value);
+    } else {
+        mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
     }
 }
 
@@ -464,31 +497,77 @@ static void shardcached_handle_put_request(shardcache_t *cache, struct mg_connec
 
 static int shardcached_request_handler(struct mg_connection *conn)
 {
-
     struct mg_request_info *request_info = mg_get_request_info(conn);
     shardcache_t *cache = request_info->user_data;
     char *key = (char *)request_info->uri;
+    int basepath_found = 0;
+
+    int basepath_len = strlen(config.basepath);
+    int baseadminpath_len = strlen(config.baseadminpath);
+    int basepaths_differ = (basepath_len != baseadminpath_len || strcmp(config.basepath, config.baseadminpath) != 0);
 
     __sync_add_and_fetch(&shcd_active_requests, 1);
 
     while (*key == '/' && *key)
         key++;
-    if (config.basepath) {
-        if (strncmp(key, config.basepath, strlen(config.basepath)) != 0) {
-            ERROR("Bad request uri : %s", request_info->uri);
-            mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
-            __sync_sub_and_fetch(&shcd_active_requests, 1);
-            return 1;
+
+    if (basepath_len) {
+        if (strncmp(key, config.basepath, basepath_len) == 0) {
+            key += basepath_len + 1;
+            basepath_found = 1;
+            while (*key == '/' && *key)
+                key++;
+        } else {
+            if (!basepaths_differ) {
+                ERROR("Bad request uri : %s", request_info->uri);
+                mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
+                __sync_sub_and_fetch(&shcd_active_requests, 1);
+                return 1;
+            }
         }
-        key += strlen(config.basepath);
     }
-    while (*key == '/' && *key)
-        key++;
 
     if (*key == 0) {
         mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length 9\r\n\r\nNot Found");
         __sync_sub_and_fetch(&shcd_active_requests, 1);
         return 1;
+    }
+
+    if (baseadminpath_len && basepaths_differ) {
+        if (!basepath_found && strncmp(key, config.baseadminpath, baseadminpath_len) == 0) {
+            key += baseadminpath_len + 1;
+
+            while (*key == '/' && *key)
+                key++;
+            if (*key == 0) {
+                mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length 9\r\n\r\nNot Found");
+                __sync_sub_and_fetch(&shcd_active_requests, 1);
+                return 1;
+            }
+
+            if (strncasecmp(request_info->request_method, "GET", 3) == 0)
+                shardcached_handle_admin_request(cache, conn, key, 0);
+            else
+                mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length 9\r\n\r\nForbidden");
+            __sync_sub_and_fetch(&shcd_active_requests, 1);
+            return 1;
+        }
+    }
+
+    // if baseadminpath is not defined or it's the same as basepath,
+    // we need to check for the "special" admin keys and handle them differently
+    // (in such cases the labels __stats__, __index__ and __health__ become reserved
+    // and can't be used as keys from the http interface)
+    if ((!baseadminpath_len || !basepaths_differ) &&
+        (strcmp(key, "__stats__") == 0 || strcmp(key, "__index__") == 0 || strcmp(key, "__health__") == 0))
+    {
+        if (strncasecmp(request_info->request_method, "GET", 3) == 0)
+            shardcached_handle_admin_request(cache, conn, key, 0);
+        else
+            mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length 9\r\n\r\nForbidden");
+        __sync_sub_and_fetch(&shcd_active_requests, 1);
+        return 1;
+
     }
 
     // handle the actual GET/PUT/DELETE request
@@ -833,6 +912,11 @@ int config_handler(void *user,
             snprintf(config->basepath, sizeof(config->basepath),
                     "%s", value);
         }
+        else if (strcmp(name, "baseadminpath") == 0)
+        {
+            snprintf(config->baseadminpath, sizeof(config->baseadminpath),
+                    "%s", value);
+        }
         else if (strcmp(name, "listen") == 0)
         {
             if (!config_listening_address((char *)value, config)) {
@@ -916,7 +1000,8 @@ void parse_cmdline(int argc, char **argv)
         {"cfgfile", 2, 0, 'c'},
         {"access_log", 2, 0, 'a'},
         {"error_log", 2, 0, 'e'},
-        {"base", 2, 0, 'b'},
+        {"basepath", 2, 0, 'b'},
+        {"baseadminpath", 2, 0, 'B'},
         {"plugins_directory", 2, 0, 'd'},
         {"foreground", 0, 0, 'f'},
         {"stats_interval", 2, 0, 'i'},
@@ -937,7 +1022,7 @@ void parse_cmdline(int argc, char **argv)
     };
 
     char c;
-    while ((c = getopt_long (argc, argv, "a:b:c:d:fg:hHi:l:m:n:Ns:S:t:o:vw:x:?",
+    while ((c = getopt_long (argc, argv, "a:b:B:c:d:fg:hHi:l:m:n:Ns:S:t:o:vw:x:?",
                              long_options, &option_index)))
     {
         if (c == -1) {
@@ -962,6 +1047,13 @@ void parse_cmdline(int argc, char **argv)
             case 'd':
                 snprintf(config.plugins_dir,
                         sizeof(config.plugins_dir), "%s", optarg);
+                break;
+            case 'B':
+                // skip leading '/'s
+                while (*optarg == '/')
+                    optarg++;
+                snprintf(config.baseadminpath,
+                        sizeof(config.baseadminpath), "%s", optarg);
                 break;
             case 'e':
                 snprintf(config.error_log_file,
