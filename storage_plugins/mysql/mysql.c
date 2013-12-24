@@ -419,18 +419,21 @@ static int st_store(void *key, size_t klen, void *value, size_t vlen, void *priv
         // TODO - error messages
         SPIN_UNLOCK(&dbc->lock);
         fprintf(stderr, "Can't bind params to the insert statement: %s\n", mysql_stmt_error(dbc->insert_stmt));
+        free(keystr);
         return -1;
     }
 
     if (mysql_stmt_execute(dbc->insert_stmt) != 0) {
         // TODO - error messages
         SPIN_UNLOCK(&dbc->lock);
+        free(keystr);
         return -1;
     }
 
     mysql_stmt_free_result(dbc->insert_stmt);
 
     SPIN_UNLOCK(&dbc->lock);
+    free(keystr);
     return 0;
 }
 
@@ -465,18 +468,21 @@ static int st_remove(void *key, size_t klen, void *priv)
     if (mysql_stmt_bind_param(dbc->delete_stmt, &bnd) != 0) {
         // TODO - error messages
         SPIN_UNLOCK(&dbc->lock);
+        free(keystr);
         return -1;
     }
 
     if (mysql_stmt_execute(dbc->delete_stmt) != 0) {
         // TODO - error messages
         SPIN_UNLOCK(&dbc->lock);
+        free(keystr);
         return -1;
     }
 
     mysql_stmt_free_result(dbc->delete_stmt);
 
     SPIN_UNLOCK(&dbc->lock);
+    free(keystr);
     return 0;
 }
 
@@ -509,12 +515,14 @@ static int st_exist(void *key, size_t klen, void *priv) {
     if (mysql_stmt_bind_param(dbc->exist_stmt, &bnd) != 0) {
         // TODO - error messages
         SPIN_UNLOCK(&dbc->lock);
+        free(keystr);
         return 0;
     }
 
     if (mysql_stmt_execute(dbc->exist_stmt) != 0) {
         // TODO - error messages
         SPIN_UNLOCK(&dbc->lock);
+        free(keystr);
         return 0;
     }
 
@@ -530,6 +538,7 @@ static int st_exist(void *key, size_t klen, void *priv) {
         // TODO - error messages
         mysql_stmt_free_result(dbc->exist_stmt);
         SPIN_UNLOCK(&dbc->lock);
+        free(keystr);
         return 0;
     }
 
@@ -540,6 +549,7 @@ static int st_exist(void *key, size_t klen, void *priv) {
     }
 
     SPIN_UNLOCK(&dbc->lock);
+    free(keystr);
     return (count == 1);   
 }
 
@@ -665,14 +675,19 @@ storage_mysql_destroy(storage_mysql_t *st)
 
     free(st->dbhost);
     free(st->dbname);
-    free(st->unix_socket);
-    free(st->dbuser);
-    free(st->dbpasswd);
+    if (st->dbuser)
+        free(st->dbuser);
+    if (st->dbpasswd)
+        free(st->dbpasswd);
+    if (st->unix_socket)
+        free(st->unix_socket);
     free(st->table);
     free(st->keyfield);
     free(st->keybytesfield);
     free(st->valuefield);
     free(st->valuesizefield);
+    if (st->storage_path)
+        free(st->storage_path);
     free(st);
 }
 
