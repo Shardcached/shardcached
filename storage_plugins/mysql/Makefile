@@ -1,10 +1,11 @@
-TARGET=mysql.storage
+TARGET=mysql
+EXT=storage
 
 all: $(TARGET)
 
-$(TARGET): mysql.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -I../../deps/.incs -L../../deps/.libs -fPIC -shared mysql.c -o $(TARGET) -lmysqlclient -O3
+$(TARGET): $(TARGET).c
+	$(CC) $(CFLAGS) $(LDFLAGS) -I../../deps/.incs -L../../deps/.libs -fPIC -shared $(TARGET).c -o $(TARGET).$(EXT) -lmysqlclient
 
 clean:
-	@rm $(TARGET)
+	@rm $(TARGET).$(EXT)
 

@@ -1,4 +1,4 @@
-PLUGINS=sqlite
+PLUGINS=sqlite mysql
 
 all: $(PLUGINS)
 

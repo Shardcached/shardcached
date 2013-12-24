@@ -1,9 +1,10 @@
-TARGET=sqlite.storage
+TARGET=sqlite
+EXT=storage
 
 all: $(TARGET)
 
-$(TARGET): sqlite.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -I../../deps/.incs -L../../deps/.libs -fPIC -shared sqlite.c -o $(TARGET) -lsqlite3
+$(TARGET): $(TARGET).c
+	$(CC) $(CFLAGS) $(LDFLAGS) -I../../deps/.incs -L../../deps/.libs -fPIC -shared $(TARGET).c -o $(TARGET).$(EXT) -lsqlite3
 
 clean:
-	@rm $(TARGET)
+	@rm $(TARGET).$(EXT)
