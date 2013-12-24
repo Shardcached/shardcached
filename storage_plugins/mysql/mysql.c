@@ -672,6 +672,7 @@ storage_mysql_destroy(storage_mysql_t *st)
     	st_clear_dbconnection(st, dbc);
     }
     free(st->dbconnections);
+    mysql_server_end();
 
     free(st->dbhost);
     free(st->dbname);
