@@ -50,6 +50,14 @@
 
 #define ADDR_REGEXP "^[a-z0-9_\\.\\-]+(:[0-9]+)?$"
 
+#define HTTP_HEADERS_BASE "HTTP/1.0 200 OK\r\n" \
+                          "Content-Type: %s\r\n" \
+                          "Content-Length: %d\r\n" \
+                          "Server: shardcached\r\n" \
+                          "Connection: Close\r\n"
+#define HTTP_HEADERS HTTP_HEADERS_BASE "\r\n"
+#define HTTP_HEADERS_WITH_TIME HTTP_HEADERS_BASE "Last-Modified: %s\r\n\r\n"
+
 static pthread_cond_t exit_cond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t exit_lock = PTHREAD_MUTEX_INITIALIZER;
 static int should_exit = 0;
@@ -326,12 +334,8 @@ static void shardcached_handle_admin_request(shardcache_t *cache, struct mg_conn
         fbuf_t buf = FBUF_STATIC_INITIALIZER;
         shardcached_build_stats_response(&buf, do_html, cache);
 
-        mg_printf(conn, "HTTP/1.0 200 OK\r\n"
-                        "Content-Type: text/%s\r\n"
-                        "Content-length: %d\r\n"
-                        "Server: shardcached\r\n"
-                        "Connection: Close\r\n\r\n",
-                        do_html ? "html" : "plain",
+        mg_printf(conn, HTTP_HEADERS,
+                        do_html ? "text/html" : "text/plain",
                         fbuf_used(&buf));
 
         if (!is_head)
@@ -346,12 +350,8 @@ static void shardcached_handle_admin_request(shardcache_t *cache, struct mg_conn
 
         shardcached_build_index_response(&buf, do_html, cache);
 
-        mg_printf(conn, "HTTP/1.0 200 OK\r\n"
-                        "Content-Type: text/%s\r\n"
-                        "Content-length: %d\r\n"
-                        "Server: shardcached\r\n"
-                        "Connection: Close\r\n\r\n",
-                        do_html ? "html" : "plain",
+        mg_printf(conn, HTTP_HEADERS,
+                        do_html ? "text/html" : "text/plain",
                         fbuf_used(&buf));
 
         if (!is_head)
@@ -364,13 +364,9 @@ static void shardcached_handle_admin_request(shardcache_t *cache, struct mg_conn
 
         char *resp = do_html ? "<html><body>OK</body></html>" : "OK";
 
-        mg_printf(conn, "HTTP/1.0 200 OK\r\n"
-                        "Content-Type: text/%s\r\n"
-                        "Content-length: %lu\r\n"
-                        "Server: shardcached\r\n"
-                        "Connection: Close\r\n\r\n",
-                        do_html ? "html" : "plain",
-                        strlen(resp));
+        mg_printf(conn, HTTP_HEADERS,
+                        do_html ? "text/html" : "text/plain",
+                        (int)strlen(resp));
 
         if (!is_head)
             mg_printf(conn, "%s", resp);
@@ -416,12 +412,7 @@ static void shardcached_handle_get_request(shardcache_t *cache, struct mg_connec
         char timestamp[256];
         struct tm gmts;
         strftime(timestamp, sizeof(timestamp), "%a, %d %b %Y %T %z", gmtime_r(&ts.tv_sec, &gmts));
-        mg_printf(conn, "HTTP/1.0 200 OK\r\n"
-                        "Content-Type: %s\r\n"
-                        "Content-length: %d\r\n"
-                        "Last-Modified: %s\r\n"
-                        "Server: shardcached\r\n"
-                        "Connection: Close\r\n\r\n", mtype, (int)vlen, timestamp);
+        mg_printf(conn, HTTP_HEADERS_WITH_TIME, mtype, (int)vlen, timestamp);
 
         if (!is_head && value)
             mg_write(conn, value, vlen);
