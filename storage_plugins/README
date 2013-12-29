@@ -1,0 +1,28 @@
+*  Loadable Storage Modules  *
+
+ Storage plugins are expected to export only the two following symbols :
+
+ -- shardcache_storage_t *storage_create(const char **options)
+ -- void storage_destroy(shardcache_storage_t *storage)
+
+ storage_create() should return a pointer to a properly initialized
+ shardcache_storage_t structure.
+ The same pointer will be provided to storage_destroy() in order to release
+ all the resources used by the storage module. 
+
+ The **options argument in storage_create() is expcted to be a NULL-terminated
+ array of strings containing key/value pairs.
+
+ For example:
+ 
+ char **options = { 
+                    "storage_path",         // key
+                    "/some/path",           // value
+                    "tmp_path",             // key
+                    "/some/temporary_path", // value
+                    NULL                    // terminator
+                  }
+
+ The storage module MUST implement the logic to check the validity of the
+ **options array in storage_create() and return a NULL pointer if it's invalid.
+
