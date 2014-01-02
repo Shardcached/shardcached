@@ -36,6 +36,10 @@ $(LIBSHARDCACHE_DIR)/libshardcache.a:
 shardcached: objects
 	gcc src/*.o $(LDFLAGS) $(DEPS) -o shardcached
 
+.PHONY: dynamic
+dynamic: objects
+	gcc src/*.o $(LDFLAGS) -o shardcached -lshardcache
+
 $(DEPS): build_deps
 
 objects: CFLAGS += -fPIC -Ideps/.incs -Isrc -Ideps/.incs -Wall -Werror -Wno-parentheses -Wno-pointer-sign -O3
