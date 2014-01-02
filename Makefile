@@ -18,7 +18,7 @@ endif
 #CC = gcc
 TARGETS = $(patsubst %.c, %.o, $(wildcard src/*.c))
 
-all: objects shardcached
+all: $(DEPS) objects shardcached
 
 .PHONY: build_deps
 build_deps:
@@ -38,12 +38,12 @@ shardcached: objects
 
 .PHONY: dynamic
 dynamic: objects
-	gcc src/*.o $(LDFLAGS) -o shardcached -lshardcache
+	gcc src/*.o $(LDFLAGS) -o shardcached -lshardcache -lhl
 
 $(DEPS): build_deps
 
 objects: CFLAGS += -fPIC -Ideps/.incs -Isrc -Ideps/.incs -Wall -Werror -Wno-parentheses -Wno-pointer-sign -O3
-objects: $(DEPS) $(TARGETS)
+objects: $(TARGETS)
 
 clean:
 	rm -f src/*.o
