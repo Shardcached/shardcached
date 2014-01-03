@@ -15,6 +15,7 @@ daemon = no                                    ; Run as daemon or in foreground 
 nohttp = no                                    ; Disable the HTTP subsystem (optional, defaults to 'no')
 me = peer1                                     ; Identifies this peer among the shardcache nodes
                                                ; which are defined in the [nodes] section
+;user = username                               ; Assume the identity of 'username' (only when run as root)
 
 ; the nodes taking part in the shardcache (required)
 [nodes]

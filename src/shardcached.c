@@ -20,6 +20,9 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 
+#include <sys/types.h>
+#include <pwd.h>
+
 #include <mongoose.h>
 
 #include <pthread.h>
@@ -89,6 +92,7 @@ typedef struct {
     shcd_acl_action_t acl_default;
     int nohttp;
     int nostorage;
+    char *username;
 } shardcached_config_t;
 
 static shardcached_config_t config = {
@@ -115,7 +119,8 @@ static shardcached_config_t config = {
     .evict_on_delete = 1,
     .acl_default = SHCD_ACL_ACTION_ALLOW,
     .nohttp = 0,
-    .nostorage = 0
+    .nostorage = 0,
+    .username = NULL
 };
 
 static void usage(char *progname, char *msg, ...)
@@ -146,6 +151,7 @@ static void usage(char *progname, char *msg, ...)
            "    -S                    shared secret used for message signing (defaults to : '%s')\n"
            "    -t <type>             storage type (available are : 'mem' and 'fs' (defaults to '%s')\n"
            "    -o <options>          comma-separated list of storage options (defaults to '%s')\n"
+           "    -u <username>         assume the identity of <username> (only when run as root)\n"
            "    -v                    increase the log level (can be passed multiple times)\n"
            "    -w <num_workers>      number of shardcache worker threads (defaults to '%d')\n"
            "    -x <nodes>            new list of nodes to migrate the shardcache to. The format to use is the same as for the '-n' option\n"
@@ -839,6 +845,10 @@ int config_handler(void *user,
             }
 
         }
+        else if (strcmp(name, "user") == 0)
+        {
+            config->username = strdup(value);
+        }
         else
         {
             fprintf(stderr, "Unknown option %s in section %s\n", name, section);
@@ -1008,12 +1018,13 @@ void parse_cmdline(int argc, char **argv)
         {"migrate", 2, 0, 'x'},
         {"nohttp", 0, 0, 'H'},
         {"nostorage", 0, 0, 'N'},
+        {"user", 2, 0, 'u'},
         {"help", 0, 0, 'h'},
         {0, 0, 0, 0}
     };
 
     char c;
-    while ((c = getopt_long (argc, argv, "a:b:B:c:d:fg:hHi:l:m:n:Ns:S:t:o:vw:x:?",
+    while ((c = getopt_long (argc, argv, "a:b:B:c:d:fg:hHi:l:m:n:Ns:S:t:o:u:vw:x:?",
                              long_options, &option_index)))
     {
         if (c == -1) {
@@ -1098,6 +1109,9 @@ void parse_cmdline(int argc, char **argv)
                 snprintf(config.storage_options,
                         sizeof(config.storage_options), "%s", optarg);
                 break;
+            case 'u':
+                config.username = strdup(optarg);
+                break;
             case 'v':
                 config.loglevel++;
                 break;
@@ -1132,6 +1146,7 @@ int main(int argc, char **argv)
     int i;
 
     char *cfgfile = NULL;
+    struct passwd *pw = NULL;
 
     for (i = 1; i < argc-1; i++) {
         if (strcmp(argv[i], "-c") == 0)
@@ -1161,6 +1176,24 @@ int main(int argc, char **argv)
 
     if (!config.me[0]) {
         usage(argv[0], "Configuring 'me' is mandatory!");
+    }
+
+    /* lose root privileges if we have them */
+    if (getuid() == 0 || geteuid() == 0) {
+        if (config.username == 0 || *config.username == '\0') {
+            fprintf(stderr, "can't run as root without the -u switch\n");
+            exit(-1);
+        }
+        if ((pw = getpwnam(config.username)) == 0) {
+            fprintf(stderr, "can't find the user %s to switch to\n",
+                    config.username);
+            exit(-1);
+        }
+        if (setgid(pw->pw_gid) < 0 || setuid(pw->pw_uid) < 0) {
+            fprintf(stderr, "failed to assume identity of user %s\n",
+                    config.username);
+            exit(-1);
+        }
     }
 
     // check if me matches one of the nodes
@@ -1274,6 +1307,9 @@ int main(int argc, char **argv)
 
     if (st)
         shcd_storage_destroy(st);
+
+    if (config.username)
+        free(config.username);
 
     free(config.nodes);
 
