@@ -51,7 +51,7 @@
 #define SHARDCACHED_USERAGENT_SIZE_THRESHOLD 16
 #define SHARDCACHED_MAX_SHARDS 1024
 
-#define ADDR_REGEXP "^[a-z0-9_\\.\\-]+(:[0-9]+)?$"
+#define ADDR_REGEXP "^([a-z0-9_\\.\\-]+|\\*)(:[0-9]+)?$"
 
 #define HTTP_HEADERS_BASE "HTTP/1.0 200 OK\r\n" \
                           "Content-Type: %s\r\n" \
@@ -1199,11 +1199,15 @@ int main(int argc, char **argv)
     // check if me matches one of the nodes
     int me_check = 0;
     for (i = 0; i < config.num_nodes; i++) {
-        if (strcmp(config.me, config.nodes[i].label) == 0) {
+        int is_me = (strcmp(config.me, config.nodes[i].label) == 0);
+        if (is_me) {
             me_check = 1;
-            break;
+        } else if (config.nodes[i].address[0] == '*') {
+            fprintf(stderr, "address wildcard '*' is allowed only for the local node (me)\n");
+            exit(-1);
         }
     }
+
     if (!me_check) {
         // 'me' not found among peers, perhaps a migration will happen
         // and we are one the the new peers ?
