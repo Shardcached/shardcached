@@ -34,11 +34,11 @@ $(LIBSHARDCACHE_DIR)/libshardcache.a:
 	make -C $(LIBSHARDCACHE_DIR) static
 
 shardcached: objects
-	gcc src/*.o $(LDFLAGS) $(DEPS) -o shardcached
+	$(CC) src/*.o $(LDFLAGS) $(DEPS) -o shardcached
 
 .PHONY: dynamic
 dynamic: objects
-	gcc src/*.o $(LDFLAGS) -o shardcached -lshardcache -lhl
+	$(CC) src/*.o $(LDFLAGS) -o shardcached -lshardcache -lhl
 
 $(DEPS): build_deps
 
