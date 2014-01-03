@@ -41,6 +41,8 @@
 #define SHARDCACHED_SECRET_DEFAULT ""
 #define SHARDCACHED_STORAGE_TYPE_DEFAULT "mem"
 #define SHARDCACHED_STORAGE_OPTIONS_DEFAULT ""
+// default cache size : 512 MB
+#define SHARDCACHED_CACHE_SIZE_DEFAULT 1<<29
 #define SHARDCACHED_STATS_INTERVAL_DEFAULT 0
 #define SHARDCACHED_NUM_WORKERS_DEFAULT 10
 #define SHARDCACHED_NUM_HTTP_WORKERS_DEFAULT 10
@@ -115,7 +117,7 @@ static shardcached_config_t config = {
     .num_http_workers = SHARDCACHED_NUM_HTTP_WORKERS_DEFAULT,
     .access_log_file = SHARDCACHED_ACCESS_LOG_DEFAULT,
     .error_log_file = SHARDCACHED_ERROR_LOG_DEFAULT,
-    .cache_size = 1<<29, // 512 MB
+    .cache_size = SHARDCACHED_CACHE_SIZE_DEFAULT,
     .evict_on_delete = 1,
     .acl_default = SHCD_ACL_ACTION_ALLOW,
     .nohttp = 0,
@@ -142,8 +144,8 @@ static void usage(char *progname, char *msg, ...)
            "    -H                    disable the HTTP frontend\n"
            "    -i <interval>         change the time interval (in seconds) used to report internal stats via syslog (defaults to '%d')\n"
            "    -l <ip_address:port>  ip_address:port where to listen for incoming http connections\n"
-           "    -b                    HTTP url basepath (optional, defaults to "")\n"
-           "    -B                    HTTP url baseadminpath (optional, defaults to "")\n"
+           "    -b                    HTTP url basepath (optional, defaults to '')\n"
+           "    -B                    HTTP url baseadminpath (optional, defaults to '')\n"
            "    -n <nodes>            list of nodes participating in the shardcache in the form : 'label:address:port,label2:address2:port2'\n"
            "    -N                    no storage subsystem, use only the internal libshardcache volatile storage\n"
            "    -m me                 the label of this node, to identify it among the ones participating in the shardcache\n"
@@ -171,7 +173,7 @@ static void usage(char *progname, char *msg, ...)
            , SHARDCACHED_ERROR_LOG_DEFAULT
            , SHARDCACHED_PLUGINS_DIR_DEFAULT
            , SHARDCACHED_STATS_INTERVAL_DEFAULT
-           , 1<<20
+           , SHARDCACHED_CACHE_SIZE_DEFAULT
            , SHARDCACHED_SECRET_DEFAULT
            , SHARDCACHED_STORAGE_TYPE_DEFAULT
            , SHARDCACHED_STORAGE_OPTIONS_DEFAULT
