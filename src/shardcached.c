@@ -1026,7 +1026,7 @@ void parse_cmdline(int argc, char **argv)
     };
 
     char c;
-    while ((c = getopt_long (argc, argv, "a:b:B:c:d:fg:hHi:l:m:n:Ns:S:t:o:u:vw:x:?",
+    while ((c = getopt_long (argc, argv, "a:b:B:c:d:e:fg:hHi:l:m:n:Ns:S:t:o:u:vw:x:?",
                              long_options, &option_index)))
     {
         if (c == -1) {
