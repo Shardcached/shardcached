@@ -105,7 +105,9 @@ parse_options(storage_mysql_t *st, const char **options)
                 }
             } else if (strcmp(key, "storage_path") == 0) {
                 st->storage_path = strdup(value);
-            } else {
+            } else if (strcmp(key, "num_connections") == 0) {
+                st->num_connections = strtol(value, NULL, 10);
+            }else {
                 fprintf(stderr, "Unknown option name %s\n", key);
             }
         }
