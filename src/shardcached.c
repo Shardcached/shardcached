@@ -1180,24 +1180,6 @@ int main(int argc, char **argv)
         usage(argv[0], "Configuring 'me' is mandatory!");
     }
 
-    /* lose root privileges if we have them */
-    if (getuid() == 0 || geteuid() == 0) {
-        if (config.username == 0 || *config.username == '\0') {
-            fprintf(stderr, "can't run as root without the -u switch\n");
-            exit(-1);
-        }
-        if ((pw = getpwnam(config.username)) == 0) {
-            fprintf(stderr, "can't find the user %s to switch to\n",
-                    config.username);
-            exit(-1);
-        }
-        if (setgid(pw->pw_gid) < 0 || setuid(pw->pw_uid) < 0) {
-            fprintf(stderr, "failed to assume identity of user %s\n",
-                    config.username);
-            exit(-1);
-        }
-    }
-
     // check if me matches one of the nodes
     int me_check = 0;
     for (i = 0; i < config.num_nodes; i++) {
@@ -1289,6 +1271,28 @@ int main(int argc, char **argv)
                        mongoose_options);
     }
 
+    int rc = 0;
+    /* lose root privileges if we have them */
+    if (getuid() == 0 || geteuid() == 0) {
+        if (config.username == 0 || *config.username == '\0') {
+            fprintf(stderr, "can't run as root without the -u switch\n");
+            rc = -99;
+            goto __exit;
+        }
+        if ((pw = getpwnam(config.username)) == 0) {
+            fprintf(stderr, "can't find the user %s to switch to\n",
+                    config.username);
+            rc = -99;
+            goto __exit;
+        }
+        if (setgid(pw->pw_gid) < 0 || setuid(pw->pw_uid) < 0) {
+            fprintf(stderr, "failed to assume identity of user %s\n",
+                    config.username);
+            rc = -99;
+            goto __exit;
+        }
+    }
+
     if (config.migration_nodes)
         shardcache_migration_begin(cache, config.migration_nodes, config.num_migration_nodes, 1);
 
@@ -1298,6 +1302,7 @@ int main(int argc, char **argv)
         ERROR("Can't start the http subsystem");
     }
 
+__exit:
     NOTICE("exiting");
 
     if (ctx)
@@ -1319,5 +1324,5 @@ int main(int argc, char **argv)
 
     free(config.nodes);
 
-    exit(0);
+    exit(rc);
 }
