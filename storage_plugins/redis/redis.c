@@ -41,12 +41,17 @@ parse_options(storage_redis_t *st, const char **options)
     while (options && *options) {
         char *key = (char *)*options++;
         char *value = NULL;
+
+        if (!*key)
+            break;
+
         if (*options) { 
             value = (char *)*options++;
         } else {
-            fprintf(stderr, "Odd element in the options array");
+            fprintf(stderr, "Odd element in the options array\n");
             break;
         }
+
         if (key && value) {
             if (strcmp(key, "host") == 0) {
                 st->host = strdup(value);

@@ -66,6 +66,8 @@ parse_options(storage_mysql_t *st, const char **options)
 {
     while (options && *options) {
         char *key = (char *)*options++;
+        if (!*key)
+            break;
         char *value = NULL;
         if (*options) {
             value = (char *)*options++;

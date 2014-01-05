@@ -37,8 +37,10 @@ typedef struct {
 static void
 parse_options(storage_sqlite_t *st, const char **options)
 {
-    while (*options) {
+    while (options && *options) {
         char *key = (char *)*options++;
+        if (!*key)
+            break;
         char *value = NULL;
         if (*options) {
             value = (char *)*options++;
