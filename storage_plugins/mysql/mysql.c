@@ -7,13 +7,13 @@
 
 #ifdef __MACH__
 #include <libkern/OSAtomic.h>
-#define SPIN_LOCK(__mutex) OSSpinLockLock(__mutex)
+#define SPIN_LOCK(__mutex)    OSSpinLockLock(__mutex)
 #define SPIN_TRYLOCK(__mutex) OSSpinLockTry(__mutex)
-#define SPIN_UNLOCK(__mutex) OSSpinLockUnlock(__mutex)
+#define SPIN_UNLOCK(__mutex)  OSSpinLockUnlock(__mutex)
 #else
-#define SPIN_LOCK(__mutex) pthread_spin_lock(__mutex)
+#define SPIN_LOCK(__mutex)    pthread_spin_lock(__mutex)
 #define SPIN_TRYLOCK(__mutex) pthread_spin_trylock(__mutex)
-#define SPIN_UNLOCK(__mutex) pthread_spin_unlock(__mutex)
+#define SPIN_UNLOCK(__mutex)  pthread_spin_unlock(__mutex)
 #endif
 
 
@@ -64,14 +64,14 @@ typedef struct {
 static void
 parse_options(storage_mysql_t *st, const char **options)
 {
-    while (*options) {
+    while (options && *options) {
         char *key = (char *)*options++;
         char *value = NULL;
         if (*options) {
             value = (char *)*options++;
         } else {
             fprintf(stderr, "Odd element in the options array");
-            continue;
+            break;
         }
         if (key && value) {
             if (strcmp(key, "dbname") == 0) {
@@ -114,7 +114,8 @@ parse_options(storage_mysql_t *st, const char **options)
     }
 }
 
-static void st_clear_dbconnection(storage_mysql_t *st, db_connection_t *dbc)
+static void
+st_clear_dbconnection(storage_mysql_t *st, db_connection_t *dbc)
 {
     if (dbc->select_stmt) {
         mysql_stmt_close(dbc->select_stmt);
@@ -155,7 +156,8 @@ static void st_clear_dbconnection(storage_mysql_t *st, db_connection_t *dbc)
     }
 }
 
-static int st_init_dbconnection(storage_mysql_t *st, db_connection_t *dbc)
+static int
+st_init_dbconnection(storage_mysql_t *st, db_connection_t *dbc)
 {
     MYSQL *mysql = mysql_init(&dbc->dbh);
     if (!mysql) {
@@ -251,7 +253,8 @@ static int st_init_dbconnection(storage_mysql_t *st, db_connection_t *dbc)
     return 0;
 }
 
-static db_connection_t *st_get_dbconnection(storage_mysql_t *st)
+static db_connection_t *
+st_get_dbconnection(storage_mysql_t *st)
 {
     int rc = 0;
     int index = 0;
