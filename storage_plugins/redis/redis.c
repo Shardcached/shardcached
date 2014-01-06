@@ -25,6 +25,7 @@ typedef struct {
 #else
     pthread_spinlock_t lock;
 #endif
+    int initialized;
 } redis_connection_t;
 
 typedef struct {
@@ -69,6 +70,15 @@ parse_options(storage_redis_t *st, const char **options)
 static void
 st_clear_connection(storage_redis_t *st, redis_connection_t *c)
 {
+    if (c->context)
+        redisFree(c->context);
+    c->context = NULL;
+    if (c->initialized) {
+#ifndef __MACH__
+        pthread_spin_destroy(&c->lock);
+#endif
+        c->initialized = 0;
+    }
 }
 
 static int
@@ -80,6 +90,12 @@ st_init_connection(storage_redis_t *st, redis_connection_t *c)
         redisFree(c->context);
         c->context = NULL;
         return -1;
+    }
+    if (!c->initialized) {
+#ifndef __MACH__
+        pthread_spin_init(&c->lock, 0);
+#endif
+        c->initialized = 1;
     }
     return 0;
 }
