@@ -1239,13 +1239,14 @@ int main(int argc, char **argv)
                                             st ? shcd_storage_get(st) : NULL,
                                             config.secret,
                                             config.num_workers,
-                                            config.cache_size,
-                                            config.evict_on_delete);
+                                            config.cache_size);
 
     if (!cache) {
         ERROR("Can't initialize the shardcache engine");
         exit(-1);
     }
+
+    shardcache_evict_on_delete(cache, config.evict_on_delete);
 
     // initialize the mongoose callbacks descriptor
     struct mg_callbacks shardcached_callbacks = {
