@@ -95,6 +95,7 @@ typedef struct {
     int nohttp;
     int nostorage;
     char *username;
+    int use_persistent_connections;
 } shardcached_config_t;
 
 static shardcached_config_t config = {
@@ -122,7 +123,8 @@ static shardcached_config_t config = {
     .acl_default = SHCD_ACL_ACTION_ALLOW,
     .nohttp = 0,
     .nostorage = 0,
-    .username = NULL
+    .username = NULL,
+    .use_persistent_connections = 1
 };
 
 static void usage(char *progname, char *msg, ...)
@@ -865,15 +867,31 @@ int config_handler(void *user,
         }
         else if (strcmp(name, "evict_on_delete") == 0)
         {
-            int b = strtol(value, NULL, 10);
-            if (strcasecmp(value, "yes") == 0 ||
-                strcasecmp(value, "true") == 0 ||
-                b == 1)
+            if (strcasecmp(value, "no") == 0 ||
+                strcasecmp(value, "false") == 0 ||
+                strcasecmp(value, "0") == 0)
             {
-                config->evict_on_delete = b;
-            } else if (strcasecmp(value, "no") &&
-                       strcasecmp(value, "false") &&
-                       b != 0)
+                config->evict_on_delete = 0;
+            }
+            else if (strcasecmp(value, "yes") &&
+                       strcasecmp(value, "true") &&
+                       strcasecmp(value, "1"))
+            {
+                fprintf(stderr, "Invalid value %s for option %s\n", value, name);
+                return 0;
+            }
+        }
+        else if (strcmp(name, "use_persistent_connections") == 0)
+        {
+            if (strcasecmp(value, "no") == 0 ||
+                strcasecmp(value, "false") == 0 ||
+                strcasecmp(value, "0") == 0)
+            {
+                config->use_persistent_connections = 0;
+            }
+            else if (strcasecmp(value, "yes") &&
+                       strcasecmp(value, "true") &&
+                       strcasecmp(value, "1"))
             {
                 fprintf(stderr, "Invalid value %s for option %s\n", value, name);
                 return 0;

@@ -26,6 +26,7 @@ peer3 = some_other_peer:4446
 [shardcache]
 num_workers = 50                               ; Number of shardcache workers (optional, defaults to '10')
 evict_on_delete = yes                          ; Evict on delete (optional, defaults to 'yes')
+use_persistent_connections = yes               ; Use persistent connections instead of creating a new connection for each command sent to peers
 secret = default                               ; Shared secret used for message signing (optional, defaults to 'default') 
 
 [http]
