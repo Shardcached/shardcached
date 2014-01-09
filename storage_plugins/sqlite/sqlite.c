@@ -242,7 +242,7 @@ static size_t st_count(void *priv)
 {
     storage_sqlite_t *st = (storage_sqlite_t *)priv;
 
-    size_t count;
+    size_t count = 0;
 
     pthread_mutex_lock(&st->lock);
 
