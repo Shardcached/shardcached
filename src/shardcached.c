@@ -693,6 +693,11 @@ int config_acl(char *pattern, char *aclstr)
     }
 
     char *method_string = strsep(&p, ":");
+    if (!method_string) {
+        ERROR("Invalid acl string %s (no method_string found)", aclstr);
+        return -1;
+    }
+
     shcd_acl_method_t method = SHCD_ACL_METHOD_ANY;
     if (strcasecmp(method_string, "*") == 0) {
         method = SHCD_ACL_METHOD_ANY;
@@ -710,6 +715,10 @@ int config_acl(char *pattern, char *aclstr)
     struct in_addr ip;
     uint32_t mask = 0xffff;
     char *ipaddr_string = strsep(&p, "/");
+    if (!ipaddr_string) {
+        ERROR("Invalid acl, can't find the ip address");
+        return -1;
+    }
     char *maskstr = p;
     if (maskstr && *maskstr) {
         mask = -1 << strtol(maskstr, NULL, 10);

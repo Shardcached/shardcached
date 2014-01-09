@@ -376,15 +376,17 @@ storage_fs_create(const char **options)
             tmp_path = strdup("/tmp");
         }
         storage->tmp = tmp_path;
-        check = access(storage->tmp, R_OK|W_OK);
-        if (check != 0) {
-            ERROR("Can't access the temporary path %s : %s",
-                    storage->tmp, strerror(errno));
-            free(storage);
-            free(storage_path);
-            free(tmp_path);
-            free(st);
-            return NULL;
+        if (storage->tmp) {
+            check = access(storage->tmp, R_OK|W_OK);
+            if (check != 0) {
+                ERROR("Can't access the temporary path %s : %s",
+                        storage->tmp, strerror(errno));
+                free(storage);
+                free(storage_path);
+                free(tmp_path);
+                free(st);
+                return NULL;
+            }
         }
     } else {
         ERROR("No storage path defined");

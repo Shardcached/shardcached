@@ -896,7 +896,6 @@ static int match_prefix(const char *pattern, int pattern_len, const char *str) {
   }
 
   i = j = 0;
-  res = -1;
   for (; i < pattern_len; i++, j++) {
     if (pattern[i] == '?' && str[j] != '\0') {
       continue;
@@ -3391,7 +3390,7 @@ static void prepare_cgi_environment(struct mg_connection *conn,
 }
 
 static void handle_cgi_request(struct mg_connection *conn, const char *prog) {
-  int headers_len, data_len, i, fdin[2], fdout[2];
+  int headers_len, data_len, i, fdin[2] = { -1, -1 }, fdout[2] = { -1, -1 };
   const char *status, *status_text;
   char buf[16384], *pbuf, dir[PATH_MAX], *p;
   struct mg_request_info ri = { 0 };
@@ -4285,6 +4284,8 @@ int mg_upload(struct mg_connection *conn, const char *destination_dir) {
   int bl, n, i, j, headers_len, boundary_len, eof,
       len = 0, num_uploaded_files = 0;
 
+  memset(buf, 0, sizeof(buf));
+
   // Request looks like this:
   //
   // POST /upload HTTP/1.1
@@ -5064,7 +5065,6 @@ static void process_new_connection(struct mg_connection *conn) {
   char ebuf[100];
 
   keep_alive_enabled = !strcmp(conn->ctx->config[ENABLE_KEEP_ALIVE], "yes");
-  keep_alive = 0;
 
   // Important: on new connection, reset the receiving buffer. Credit goes
   // to crule42.
