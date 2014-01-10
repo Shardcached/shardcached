@@ -1,0 +1,3 @@
+[submodule "deps/libshardcache"]
+	path = deps/libshardcache
+	url = https://github.com/xant/libshardcache.git

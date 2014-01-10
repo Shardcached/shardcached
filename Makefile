@@ -24,14 +24,6 @@ all: $(DEPS) objects shardcached
 build_deps:
 	@make -eC deps all
 
-.PHONY: update_deps
-update_deps:
-	@make -C deps update
-
-.PHONY: purge_deps
-purge_deps:
-	@make -C deps purge
-
 $(LIBSHARDCACHE_DIR)/libshardcache.a:
 	make -C $(LIBSHARDCACHE_DIR) static
 
