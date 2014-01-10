@@ -1,7 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <log.h>
 #include <fbuf.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -10,6 +9,7 @@
 #include <errno.h>
 #include <hashtable.h>
 #include <dirent.h>
+#include <shardcache.h>
 #include "storage_fs.h"
 
 typedef struct {
@@ -329,7 +329,7 @@ storage_fs_create(const char **options)
             if (*options) {
                 value = (char *)*options++;
             } else {
-                ERROR("Odd element in the options array");
+                SHC_ERROR("Odd element in the options array");
                 continue;
             }
             if (key && value) {
@@ -338,7 +338,7 @@ storage_fs_create(const char **options)
                 } else if (strcmp(key, "tmp_path") == 0) {
                     tmp_path = strdup(value);
                 }else {
-                    ERROR("Unknown option name %s", key);
+                    SHC_ERROR("Unknown option name %s", key);
                 }
             }
         }
@@ -348,7 +348,7 @@ storage_fs_create(const char **options)
         struct stat s;
         if (stat(storage_path, &s) != 0) {
             if (mkdir(storage_path, S_IRWXU) != 0) {
-                ERROR("Can't create storage path %s: %s",
+                SHC_ERROR("Can't create storage path %s: %s",
                         storage_path, strerror(errno));
                 free(storage_path);
                 if (tmp_path)
@@ -356,12 +356,12 @@ storage_fs_create(const char **options)
                 free(st);
                 return NULL;
             }
-            NOTICE("Created storage path: %s", storage_path);
+            SHC_NOTICE("Created storage path: %s", storage_path);
         }
 
         int check = access(storage_path, R_OK|W_OK);
         if (check != 0) {
-            ERROR("Can't access the storage path %s : %s",
+            SHC_ERROR("Can't access the storage path %s : %s",
                     storage_path, strerror(errno));
             free(storage_path);
             if (tmp_path)
@@ -379,7 +379,7 @@ storage_fs_create(const char **options)
         if (storage->tmp) {
             check = access(storage->tmp, R_OK|W_OK);
             if (check != 0) {
-                ERROR("Can't access the temporary path %s : %s",
+                SHC_ERROR("Can't access the temporary path %s : %s",
                         storage->tmp, strerror(errno));
                 free(storage);
                 free(storage_path);
@@ -389,7 +389,7 @@ storage_fs_create(const char **options)
             }
         }
     } else {
-        ERROR("No storage path defined");
+        SHC_ERROR("No storage path defined");
         if (tmp_path)
             free(tmp_path);
         free(st);

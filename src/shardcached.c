@@ -11,8 +11,6 @@
 #include <sys/time.h>
 #include <sys/stat.h>
 
-#include "log.h"
-
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -37,7 +35,7 @@
 #include "acl.h"
 
 #define SHARDCACHED_ADDRESS_DEFAULT "4321"
-#define SHARDCACHED_LOGLEVEL_DEFAULT 0
+#define SHARDCACHED_LOGLEVEL_DEFAULT LOG_NOTICE
 #define SHARDCACHED_SECRET_DEFAULT ""
 #define SHARDCACHED_STORAGE_TYPE_DEFAULT "mem"
 #define SHARDCACHED_STORAGE_OPTIONS_DEFAULT ""
@@ -194,7 +192,7 @@ static void shardcached_stop(int sig)
 
 static void shardcached_do_nothing(int sig)
 {
-    DEBUG1("Signal %d received ... doing nothing\n", sig);
+    SHC_DEBUG1("Signal %d received ... doing nothing\n", sig);
 }
 
 static int shcd_active_requests = 0;
@@ -520,7 +518,7 @@ static int shardcached_request_handler(struct mg_connection *conn)
                 key++;
         } else {
             if (!basepaths_differ) {
-                ERROR("Bad request uri : %s", request_info->uri);
+                SHC_ERROR("Bad request uri : %s", request_info->uri);
                 mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
                 __sync_sub_and_fetch(&shcd_active_requests, 1);
                 return 1;
@@ -634,7 +632,7 @@ static void shardcached_run(shardcache_t *cache, uint32_t stats_interval)
                            sizeof(uint32_t));
                 }
             }
-            NOTICE("Shardcache stats: %s\n", fbuf_data(&out));
+            SHC_NOTICE("Shardcache stats: %s\n", fbuf_data(&out));
             fbuf_destroy(&out);
             free(counters);
         }
@@ -656,7 +654,7 @@ static int check_address_string(char *str)
     if (rc != 0) {
         char errbuf[1024];
         regerror(rc, &addr_regexp, errbuf, sizeof(errbuf));
-        ERROR("Can't compile regexp %s: %s\n", ADDR_REGEXP, errbuf);
+        SHC_ERROR("Can't compile regexp %s: %s\n", ADDR_REGEXP, errbuf);
         return -1;
     }
 
@@ -680,7 +678,7 @@ int config_acl(char *pattern, char *aclstr)
     }
     char *action_string = strsep(&p, ":");
     if (!action_string) {
-        ERROR("Invalid acl string %s", aclstr);
+        SHC_ERROR("Invalid acl string %s", aclstr);
         return -1;
     }
     if (strcasecmp(action_string, "allow") == 0) {
@@ -688,13 +686,13 @@ int config_acl(char *pattern, char *aclstr)
     } else if (strcasecmp(action_string, "deny") == 0) {
         action = SHCD_ACL_ACTION_DENY;
     } else {
-        ERROR("Invalid acl action %s (can be 'allow' or 'deny')", action_string);
+        SHC_ERROR("Invalid acl action %s (can be 'allow' or 'deny')", action_string);
         return -1;
     }
 
     char *method_string = strsep(&p, ":");
     if (!method_string) {
-        ERROR("Invalid acl string %s (no method_string found)", aclstr);
+        SHC_ERROR("Invalid acl string %s (no method_string found)", aclstr);
         return -1;
     }
 
@@ -708,7 +706,7 @@ int config_acl(char *pattern, char *aclstr)
     } else if (strcasecmp(method_string, "DELETE") == 0) {
         method = SHCD_ACL_METHOD_DEL;
     } else {
-        ERROR("Invalid acl method %s (can be 'GET' or 'PUT' or 'DELETE')", method_string);
+        SHC_ERROR("Invalid acl method %s (can be 'GET' or 'PUT' or 'DELETE')", method_string);
         return -1;
     }
     int ret = 0;
@@ -716,7 +714,7 @@ int config_acl(char *pattern, char *aclstr)
     uint32_t mask = 0xffff;
     char *ipaddr_string = strsep(&p, "/");
     if (!ipaddr_string) {
-        ERROR("Invalid acl, can't find the ip address");
+        SHC_ERROR("Invalid acl, can't find the ip address");
         return -1;
     }
     char *maskstr = p;
@@ -729,7 +727,7 @@ int config_acl(char *pattern, char *aclstr)
     } else {
         ret = inet_aton(ipaddr_string, &ip);
         if (ret != 1) {
-            ERROR("Bad ip address format %s (%s)\n", ipaddr_string);
+            SHC_ERROR("Bad ip address format %s (%s)\n", ipaddr_string);
             return -1;
         }
     }
@@ -1007,7 +1005,7 @@ static int parse_nodes_string(char *str, int migration)
             char *label = strsep(&tok, ":");
             char *addr = tok;
             if (!addr || check_address_string(addr) != 0) {
-                ERROR("Bad address format for peer: '%s'", addr);
+                SHC_ERROR("Bad address format for peer: '%s'", addr);
                 free(copy);
                 return -1;
             }
@@ -1246,7 +1244,7 @@ int main(int argc, char **argv)
     signal(SIGQUIT, shardcached_stop);
     signal(SIGPIPE, shardcached_do_nothing);
 
-    log_init("shardcached", config.loglevel);
+    shardcache_log_init("shardcached", config.loglevel);
 
     shcd_storage_t *st = NULL;
     if (!config.nostorage) {
@@ -1254,12 +1252,12 @@ int main(int argc, char **argv)
                                                config.storage_options,
                                                config.plugins_dir);
         if (!st) {
-            ERROR("Can't initialize the storage subsystem");
+            SHC_ERROR("Can't initialize the storage subsystem");
             exit(-1);
         }
     }
 
-    DEBUG("Starting the shardcache engine with %d workers", config.num_workers);
+    SHC_DEBUG("Starting the shardcache engine with %d workers", config.num_workers);
     shardcache_t *cache = shardcache_create(config.me,
                                             config.nodes,
                                             config.num_nodes,
@@ -1269,7 +1267,7 @@ int main(int argc, char **argv)
                                             config.cache_size);
 
     if (!cache) {
-        ERROR("Can't initialize the shardcache engine");
+        SHC_ERROR("Can't initialize the shardcache engine");
         exit(-1);
     }
 
@@ -1292,7 +1290,7 @@ int main(int argc, char **argv)
     struct mg_context *ctx = NULL;
 
     if (config.nohttp) {
-        NOTICE("HTTP subsystem has been administratively disabled");
+        SHC_NOTICE("HTTP subsystem has been administratively disabled");
     } else {
         ctx = mg_start(&shardcached_callbacks,
                        cache,
@@ -1327,11 +1325,11 @@ int main(int argc, char **argv)
     if (ctx || config.nohttp) {
         shardcached_run(cache, config.stats_interval);
     } else {
-        ERROR("Can't start the http subsystem");
+        SHC_ERROR("Can't start the http subsystem");
     }
 
 __exit:
-    NOTICE("exiting");
+    SHC_NOTICE("exiting");
 
     if (ctx)
         mg_stop(ctx);

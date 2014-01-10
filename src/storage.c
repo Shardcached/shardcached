@@ -1,6 +1,6 @@
 #include <stdlib.h>
 #include "storage.h"
-#include "log.h"
+#include "shardcache.h"
 
 #include "storage_mem.h"
 #include "storage_fs.h"
@@ -52,7 +52,7 @@ shcd_storage_init(char *storage_type, char *options_string, char *plugins_dir)
                  plugins_dir, storage_type);
         st->handle = dlopen(libname, RTLD_NOW);
         if (!st->handle) {
-            ERROR("Unknown storage type: %s (%s)\n", storage_type, dlerror());
+            SHC_ERROR("Unknown storage type: %s (%s)\n", storage_type, dlerror());
             free(st);
             return NULL;
         }
@@ -79,7 +79,7 @@ shcd_storage_init(char *storage_type, char *options_string, char *plugins_dir)
         st->destroyer = destroy;
     }
     if (!st->storage) {
-        ERROR("Can't create storage type: %s\n", storage_type);
+        SHC_ERROR("Can't create storage type: %s\n", storage_type);
         free(st);
         return NULL;
     }

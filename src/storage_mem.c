@@ -1,6 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
-#include <log.h>
+#include <shardcache.h>
 #include <hashtable.h>
 #include "storage_mem.h"
 
@@ -144,7 +144,7 @@ storage_mem_create(const char **options)
             if (*options) {
                 value = (char *)*options++;
             } else {
-                ERROR("Odd element in the options array");
+                SHC_ERROR("Odd element in the options array");
                 continue;
             }
             if (key && value) {
@@ -153,7 +153,7 @@ storage_mem_create(const char **options)
                 } else if (strcmp(key, "max_table_size") == 0) {
                     maxsize = strtol(value, NULL, 10);
                 } else {
-                    ERROR("Unknown option name %s", key);
+                    SHC_ERROR("Unknown option name %s", key);
                 }
             }
         }
