@@ -816,6 +816,8 @@ int config_handler(void *user,
         else if (strcmp(name, "loglevel") == 0)
         {
             config->loglevel = strtol(value, NULL, 10);
+            if (config->loglevel > LOG_DEBUG)
+                config->loglevel = LOG_DEBUG;
         }
         else if (strcmp(name, "daemon") == 0)
         {
@@ -1140,7 +1142,8 @@ void parse_cmdline(int argc, char **argv)
                 config.username = strdup(optarg);
                 break;
             case 'v':
-                config.loglevel++;
+                if (config.loglevel < LOG_DEBUG)
+                    config.loglevel++;
                 break;
             case 'w':
                 config.num_workers = strtol(optarg, NULL, 10);
