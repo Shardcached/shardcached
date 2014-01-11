@@ -10,6 +10,10 @@ all:
 	export INCDIR="$(INCDIR)"; \
 	export DEPS_INSTALL_DIR=$(DEPS_INSTALL_DIR); \
 	export CFLAGS="$(CFLAGS)"; \
+	if [ ! -f libshardcache/Makefile ]; then \
+	    git submodule init;\
+	    git submodule update;\
+	fi;\
 	make -eC libshardcache; \
 	if [ $$? -ne 0 ] ; then exit $$?; fi; \
 	make -eC libshardcache install; \
