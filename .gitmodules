@@ -1,3 +1,6 @@
 [submodule "deps/libshardcache"]
 	path = deps/libshardcache
 	url = https://github.com/xant/libshardcache.git
+[submodule "storage_plugins/deps/hiredis"]
+	path = storage_plugins/deps/hiredis
+	url = https://github.com/redis/hiredis.git
