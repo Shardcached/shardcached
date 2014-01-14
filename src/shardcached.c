@@ -396,7 +396,7 @@ static void shardcached_handle_get_request(shardcache_t *cache, struct mg_connec
     }
 
     size_t vlen = 0;
-    struct timeval ts;
+    struct timeval ts = { 0, 0 };
     void *value = NULL;
     if (is_head) {
         vlen = shardcache_head(cache, key, strlen(key), NULL, 0, &ts);
@@ -405,6 +405,35 @@ static void shardcached_handle_get_request(shardcache_t *cache, struct mg_connec
     }
 
     if (vlen) {
+        int i;
+        for (i = 0; i < request_info->num_headers; i++) {
+            struct tm tm;
+            const char *hdr_name = request_info->http_headers[i].name;
+            const char *hdr_value = request_info->http_headers[i].value;
+            if (strcasecmp(hdr_name, "If-Modified-Since") == 0) {
+                if (strptime(hdr_value, "%a, %d %b %Y %T %z", &tm) != NULL) {
+                    time_t time = mktime(&tm);
+                    if (ts.tv_sec < time) {
+                        mg_printf(conn, "HTTP/1.0 304 Not Modified\r\nContent-Length: 12\r\n\r\nNot Modified");
+                        if (value)
+                            free(value);
+                        return;
+                    }
+                }
+            } else if (strcasecmp(hdr_name, "If-Unmodified-Since") == 0) {
+                if (strptime(hdr_value, "%a, %d %b %Y %T %z", &tm) != NULL) {
+                    time_t time = mktime(&tm);
+                    if (ts.tv_sec > time) {
+                        mg_printf(conn, "HTTP/1.0 412 Precondition Failed\r\nContent-Length: 19\r\n\r\nPrecondition Failed");
+                        if (value)
+                            free(value);
+                        return;
+                    }
+
+                }
+            }
+        }
+
         char *mtype = "application/octet-stream";
         if (mime_types) {
             char *p = key;
