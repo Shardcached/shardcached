@@ -10,4 +10,5 @@
 
  * rest storage plugin
 
- * redis storage plugin
+ * HTTP interface: handle more received and sent HTTP headers (modification
+   times, partial content...)
