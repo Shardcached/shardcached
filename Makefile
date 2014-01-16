@@ -20,6 +20,14 @@ TARGETS = $(patsubst %.c, %.o, $(wildcard src/*.c))
 
 all: $(DEPS) objects shardcached
 
+.PHONY: tsan
+tsan:
+	@export CC=gcc-4.8; \
+	export LDFLAGS="-pie -ltsan"; \
+	export CFLAGS="-fsanitize=thread -g -fPIC -pie"; \
+	make all
+
+
 .PHONY: build_deps
 build_deps:
 	@make -eC deps all
