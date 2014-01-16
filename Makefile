@@ -36,7 +36,7 @@ dynamic: objects
 
 $(DEPS): build_deps
 
-objects: CFLAGS += -fPIC -Ideps/.incs -Isrc -Ideps/.incs -Wall -Werror -Wno-parentheses -Wno-pointer-sign -O3
+objects: CFLAGS += -fPIC -Ideps/.incs -Isrc -Ideps/.incs -Wall -Werror -Wno-parentheses -Wno-pointer-sign -O3 -g
 objects: $(TARGETS)
 
 clean:
