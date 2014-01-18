@@ -10,7 +10,7 @@ storage_options = storage_path=/home/xant/shardcache_storage,tmp_path=/tmp
 
 
 plugins_dir = ./                               ; The directory where to find plugins (optional, defaults to './')
-loglevel = 2                                   ; The loglevel (optional, defaults to '0')
+loglevel = 2                                   ; The loglevel (optional, defaults to '0' == upto(LOG_ERR))
 daemon = no                                    ; Run as daemon or in foreground (optional, defaults to 'yes')
 nohttp = no                                    ; Disable the HTTP subsystem (optional, defaults to 'no')
 me = peer1                                     ; Identifies this peer among the shardcache nodes

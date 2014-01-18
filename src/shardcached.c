@@ -35,7 +35,7 @@
 #include "acl.h"
 
 #define SHARDCACHED_ADDRESS_DEFAULT "4321"
-#define SHARDCACHED_LOGLEVEL_DEFAULT LOG_WARNING
+#define SHARDCACHED_LOGLEVEL_DEFAULT 0
 #define SHARDCACHED_SECRET_DEFAULT ""
 #define SHARDCACHED_STORAGE_TYPE_DEFAULT "mem"
 #define SHARDCACHED_STORAGE_OPTIONS_DEFAULT ""
@@ -845,8 +845,6 @@ int config_handler(void *user,
         else if (strcmp(name, "loglevel") == 0)
         {
             config->loglevel = strtol(value, NULL, 10);
-            if (config->loglevel > LOG_DEBUG)
-                config->loglevel = LOG_DEBUG;
         }
         else if (strcmp(name, "daemon") == 0)
         {
@@ -1171,8 +1169,7 @@ void parse_cmdline(int argc, char **argv)
                 config.username = strdup(optarg);
                 break;
             case 'v':
-                if (config.loglevel < LOG_DEBUG)
-                    config.loglevel++;
+                config.loglevel++;
                 break;
             case 'w':
                 config.num_workers = strtol(optarg, NULL, 10);
@@ -1276,7 +1273,7 @@ int main(int argc, char **argv)
     signal(SIGQUIT, shardcached_stop);
     signal(SIGPIPE, shardcached_do_nothing);
 
-    shardcache_log_init("shardcached", config.loglevel);
+    shardcache_log_init("shardcached", LOG_ERR + config.loglevel);
 
     shcd_storage_t *st = NULL;
     if (!config.nostorage) {
