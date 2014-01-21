@@ -47,6 +47,7 @@
 #define SHARDCACHED_PLUGINS_DIR_DEFAULT "./"
 #define SHARDCACHED_ACCESS_LOG_DEFAULT "./shardcached_access.log"
 #define SHARDCACHED_ERROR_LOG_DEFAULT "./shardcached_error.log"
+#define SHARDCACHED_PIDFILE_DEFAULT NULL
 
 #define SHARDCACHED_USERAGENT_SIZE_THRESHOLD 16
 #define SHARDCACHED_MAX_SHARDS 1024
@@ -94,6 +95,7 @@ typedef struct {
     int nostorage;
     char *username;
     int use_persistent_connections;
+    char *pidfile;
 } shardcached_config_t;
 
 static shardcached_config_t config = {
@@ -122,7 +124,8 @@ static shardcached_config_t config = {
     .nohttp = 0,
     .nostorage = 0,
     .username = NULL,
-    .use_persistent_connections = 1
+    .use_persistent_connections = 1,
+    .pidfile = SHARDCACHED_PIDFILE_DEFAULT
 };
 
 static void usage(char *progname, char *msg, ...)
@@ -889,6 +892,10 @@ int config_handler(void *user,
         {
             config->username = strdup(value);
         }
+        else if (strcmp(name, "pidfile") == 0)
+        {
+            config->pidfile = strdup(value);
+        }
         else
         {
             fprintf(stderr, "Unknown option %s in section %s\n", name, section);
@@ -1065,6 +1072,7 @@ void parse_cmdline(int argc, char **argv)
         {"listen", 2, 0, 'l'},
         {"me", 2, 0, 'm'},
         {"nodes", 2, 0, 'n'},
+        {"pidfile", 2, 0, 'p'},
         {"size", 2, 0, 's'},
         {"secret", 2, 0, 'S'},
         {"type", 2, 0, 't'},
@@ -1080,7 +1088,7 @@ void parse_cmdline(int argc, char **argv)
     };
 
     char c;
-    while ((c = getopt_long (argc, argv, "a:b:B:c:d:e:fg:hHi:l:m:n:Ns:S:t:o:u:vw:x:?",
+    while ((c = getopt_long (argc, argv, "a:b:B:c:d:e:fg:hHi:l:m:n:Np:s:S:t:o:u:vw:x:?",
                              long_options, &option_index)))
     {
         if (c == -1) {
@@ -1160,6 +1168,9 @@ void parse_cmdline(int argc, char **argv)
             case 't':
                 snprintf(config.storage_type,
                         sizeof(config.storage_type), "%s", optarg);
+                break;
+            case 'p':
+                config.pidfile = strdup(optarg);
                 break;
             case 'o':
                 snprintf(config.storage_options,
@@ -1268,6 +1279,24 @@ int main(int argc, char **argv)
         }
     }
 
+    if (config.pidfile) {
+        struct stat st;
+        if (stat(config.pidfile, &st) == 0) {
+            fprintf(stderr, "pidfile %s already exists\n", config.pidfile);
+            exit(-1);
+        }
+        pid_t pid = getpid();
+        FILE *pidfile = fopen(config.pidfile, "w");
+        if (!pidfile) {
+            fprintf(stderr, "Can't open pidfile %s: %s\n",
+                    config.pidfile, strerror(errno));
+            exit(-1);
+        }
+        char pidstr[32];
+        snprintf(pidstr, 32, "%d", pid);
+        fwrite(pidstr, 1, strlen(pidstr), pidfile);
+        fclose(pidfile);
+    }
     signal(SIGINT, shardcached_stop);
     signal(SIGHUP, shardcached_stop);
     signal(SIGQUIT, shardcached_stop);
@@ -1282,6 +1311,10 @@ int main(int argc, char **argv)
                                                config.plugins_dir);
         if (!st) {
             SHC_ERROR("Can't initialize the storage subsystem");
+            if (config.pidfile) {
+                unlink(config.pidfile);
+                free(config.pidfile);
+            }
             exit(-1);
         }
     }
@@ -1297,6 +1330,10 @@ int main(int argc, char **argv)
 
     if (!cache) {
         SHC_ERROR("Can't initialize the shardcache engine");
+        if (config.pidfile) {
+            unlink(config.pidfile);
+            free(config.pidfile);
+        }
         exit(-1);
     }
 
@@ -1378,6 +1415,11 @@ __exit:
         free(config.username);
 
     free(config.nodes);
+
+    if (config.pidfile) {
+        unlink(config.pidfile);
+        free(config.pidfile);
+    }
 
     exit(rc);
 }
