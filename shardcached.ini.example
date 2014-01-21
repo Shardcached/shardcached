@@ -16,6 +16,7 @@ nohttp = no                                    ; Disable the HTTP subsystem (opt
 me = peer1                                     ; Identifies this peer among the shardcache nodes
                                                ; which are defined in the [nodes] section
 ;user = username                               ; Assume the identity of 'username' (only when run as root)
+pidfile = /var/run/shardcached.pid             ; File where to store the pid of the running instance (optional)
 
 ; the nodes taking part in the shardcache (required)
 [nodes]
