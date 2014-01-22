@@ -1353,6 +1353,7 @@ int main(int argc, char **argv)
                                         NULL };
 
     // let's start mongoose
+    int rc = 0;
     struct mg_context *ctx = NULL;
 
     if (config.nohttp) {
@@ -1361,9 +1362,13 @@ int main(int argc, char **argv)
         ctx = mg_start(&shardcached_callbacks,
                        cache,
                        mongoose_options);
+        if (!ctx) {
+            SHC_ERROR("Can't start the HTTP subsystem");
+            rc = -98;
+            goto __exit;
+        }
     }
 
-    int rc = 0;
     /* lose root privileges if we have them */
     if (getuid() == 0 || geteuid() == 0) {
         if (config.username == 0 || *config.username == '\0') {
@@ -1377,6 +1382,10 @@ int main(int argc, char **argv)
             rc = -99;
             goto __exit;
         }
+
+        if (config.pidfile)
+            chown(config.pidfile, pw->pw_uid, pw->pw_gid);
+
         if (setgid(pw->pw_gid) < 0 || setuid(pw->pw_uid) < 0) {
             fprintf(stderr, "failed to assume identity of user %s\n",
                     config.username);
