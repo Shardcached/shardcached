@@ -43,10 +43,8 @@
 #define SHARDCACHED_CACHE_SIZE_DEFAULT 1<<29
 #define SHARDCACHED_STATS_INTERVAL_DEFAULT 0
 #define SHARDCACHED_NUM_WORKERS_DEFAULT 10
-#define SHARDCACHED_NUM_HTTP_WORKERS_DEFAULT 10
 #define SHARDCACHED_PLUGINS_DIR_DEFAULT "./"
 #define SHARDCACHED_ACCESS_LOG_DEFAULT "./shardcached_access.log"
-#define SHARDCACHED_ERROR_LOG_DEFAULT "./shardcached_error.log"
 #define SHARDCACHED_PIDFILE_DEFAULT NULL
 
 #define SHARDCACHED_USERAGENT_SIZE_THRESHOLD 16
@@ -62,8 +60,6 @@
 #define HTTP_HEADERS HTTP_HEADERS_BASE "\r\n"
 #define HTTP_HEADERS_WITH_TIME HTTP_HEADERS_BASE "Last-Modified: %s\r\n\r\n"
 
-static pthread_cond_t exit_cond = PTHREAD_COND_INITIALIZER;
-static pthread_mutex_t exit_lock = PTHREAD_MUTEX_INITIALIZER;
 static int should_exit = 0;
 static shcd_acl_t *http_acl = NULL;
 static hashtable_t *mime_types = NULL;
@@ -85,9 +81,7 @@ typedef struct {
     uint32_t stats_interval;
     char plugins_dir[1024];
     int num_workers;
-    int num_http_workers;
     char access_log_file[1024];
-    char error_log_file[1024];
     size_t cache_size;
     int evict_on_delete;
     shcd_acl_action_t acl_default;
@@ -115,9 +109,7 @@ static shardcached_config_t config = {
     .stats_interval = SHARDCACHED_STATS_INTERVAL_DEFAULT,
     .plugins_dir = SHARDCACHED_PLUGINS_DIR_DEFAULT,
     .num_workers = SHARDCACHED_NUM_WORKERS_DEFAULT,
-    .num_http_workers = SHARDCACHED_NUM_HTTP_WORKERS_DEFAULT,
     .access_log_file = SHARDCACHED_ACCESS_LOG_DEFAULT,
-    .error_log_file = SHARDCACHED_ERROR_LOG_DEFAULT,
     .cache_size = SHARDCACHED_CACHE_SIZE_DEFAULT,
     .evict_on_delete = 1,
     .acl_default = SHCD_ACL_ACTION_ALLOW,
@@ -140,7 +132,6 @@ static void usage(char *progname, char *msg, ...)
     printf("Usage: %s [OPTION]...\n"
            "Possible options:\n"
            "    -a <access_log_file>  the path where to store the access_log file (defaults to '%s')\n"
-           "    -e <error_log_file>   the path where to store the error_log file (defaults to '%s')\n"
            "    -c <config_file>      the config file to load\n"
            "    -d <plugins_path>     the path where to look for storage plugins (defaults to '%s')\n"
            "    -f                    run in foreground\n"
@@ -173,7 +164,6 @@ static void usage(char *progname, char *msg, ...)
            "              - tmp_path=<path>              the path to a temporary directory to use while new data is being uploaded\n"
            , progname
            , SHARDCACHED_ACCESS_LOG_DEFAULT
-           , SHARDCACHED_ERROR_LOG_DEFAULT
            , SHARDCACHED_PLUGINS_DIR_DEFAULT
            , SHARDCACHED_STATS_INTERVAL_DEFAULT
            , SHARDCACHED_CACHE_SIZE_DEFAULT
@@ -188,9 +178,6 @@ static void usage(char *progname, char *msg, ...)
 static void shardcached_stop(int sig)
 {
     __sync_add_and_fetch(&should_exit, 1);
-    pthread_mutex_lock(&exit_lock);
-    pthread_cond_signal(&exit_cond);
-    pthread_mutex_unlock(&exit_lock);
 }
 
 static void shardcached_do_nothing(int sig)
@@ -328,19 +315,19 @@ static void shardcached_build_stats_response(fbuf_t *buf, int do_html, shardcach
 
 static void shardcached_handle_admin_request(shardcache_t *cache, struct mg_connection *conn, char *key, int is_head)
 {
-    struct mg_request_info *request_info = mg_get_request_info(conn);
-
     if (http_acl) {
         shcd_acl_method_t method = SHCD_ACL_METHOD_GET;
-        if (shcd_acl_eval(http_acl, method, key, request_info->remote_ip) != SHCD_ACL_ACTION_ALLOW) {
+        struct in_addr remote_addr;
+        inet_aton(conn->remote_ip, &remote_addr);
+        if (shcd_acl_eval(http_acl, method, key, remote_addr.s_addr) != SHCD_ACL_ACTION_ALLOW) {
             mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
             return;
         }
     }
 
     if (strcmp(key, "__stats__") == 0) {
-        int do_html = (!request_info->query_string ||
-                       !strstr(request_info->query_string, "nohtml=1"));
+        int do_html = (!conn->query_string ||
+                       !strstr(conn->query_string, "nohtml=1"));
 
         fbuf_t buf = FBUF_STATIC_INITIALIZER;
         shardcached_build_stats_response(&buf, do_html, cache);
@@ -356,8 +343,8 @@ static void shardcached_handle_admin_request(shardcache_t *cache, struct mg_conn
 
     } else if (strcmp(key, "__index__") == 0) {
         fbuf_t buf = FBUF_STATIC_INITIALIZER;
-        int do_html = (!request_info->query_string ||
-                       !strstr(request_info->query_string, "nohtml=1"));
+        int do_html = (!conn->query_string ||
+                       !strstr(conn->query_string, "nohtml=1"));
 
         shardcached_build_index_response(&buf, do_html, cache);
 
@@ -370,8 +357,8 @@ static void shardcached_handle_admin_request(shardcache_t *cache, struct mg_conn
 
         fbuf_destroy(&buf);
     } else if (strcmp(key, "__health__") == 0) {
-        int do_html = (!request_info->query_string ||
-                       !strstr(request_info->query_string, "nohtml=1"));
+        int do_html = (!conn->query_string ||
+                       !strstr(conn->query_string, "nohtml=1"));
 
         char *resp = do_html ? "<html><body>OK</body></html>" : "OK";
 
@@ -388,11 +375,11 @@ static void shardcached_handle_admin_request(shardcache_t *cache, struct mg_conn
 
 static void shardcached_handle_get_request(shardcache_t *cache, struct mg_connection *conn, char *key, int is_head)
 {
-    struct mg_request_info *request_info = mg_get_request_info(conn);
-
     if (http_acl) {
         shcd_acl_method_t method = SHCD_ACL_METHOD_GET;
-        if (shcd_acl_eval(http_acl, method, key, request_info->remote_ip) != SHCD_ACL_ACTION_ALLOW) {
+        struct in_addr remote_addr;
+        inet_aton(conn->remote_ip, &remote_addr);
+        if (shcd_acl_eval(http_acl, method, key, remote_addr.s_addr) != SHCD_ACL_ACTION_ALLOW) {
             mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
             return;
         }
@@ -409,10 +396,10 @@ static void shardcached_handle_get_request(shardcache_t *cache, struct mg_connec
 
     if (vlen) {
         int i;
-        for (i = 0; i < request_info->num_headers; i++) {
+        for (i = 0; i < conn->num_headers; i++) {
             struct tm tm;
-            const char *hdr_name = request_info->http_headers[i].name;
-            const char *hdr_value = request_info->http_headers[i].value;
+            const char *hdr_name = conn->http_headers[i].name;
+            const char *hdr_value = conn->http_headers[i].value;
             if (strcasecmp(hdr_name, "If-Modified-Since") == 0) {
                 if (strptime(hdr_value, "%a, %d %b %Y %T %z", &tm) != NULL) {
                     time_t time = mktime(&tm);
@@ -466,10 +453,11 @@ static void shardcached_handle_get_request(shardcache_t *cache, struct mg_connec
 
 static void shardcached_handle_delete_request(shardcache_t *cache, struct mg_connection *conn, char *key)
 {
-    struct mg_request_info *request_info = mg_get_request_info(conn);
     if (http_acl) {
         shcd_acl_method_t method = SHCD_ACL_METHOD_DEL;
-        if (shcd_acl_eval(http_acl, method, key, request_info->remote_ip) != SHCD_ACL_ACTION_ALLOW) {
+        struct in_addr remote_addr;
+        inet_aton(conn->remote_ip, &remote_addr);
+        if (shcd_acl_eval(http_acl, method, key, remote_addr.s_addr) != SHCD_ACL_ACTION_ALLOW) {
             mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
             return;
         }
@@ -484,10 +472,11 @@ static void shardcached_handle_delete_request(shardcache_t *cache, struct mg_con
 
 static void shardcached_handle_put_request(shardcache_t *cache, struct mg_connection *conn, char *key)
 {
-    struct mg_request_info *request_info = mg_get_request_info(conn);
     if (http_acl) {
         shcd_acl_method_t method = SHCD_ACL_METHOD_PUT;
-        if (shcd_acl_eval(http_acl, method, key, request_info->remote_ip) != SHCD_ACL_ACTION_ALLOW) {
+        struct in_addr remote_addr;
+        inet_aton(conn->remote_ip, &remote_addr);
+        if (shcd_acl_eval(http_acl, method, key, remote_addr.s_addr) != SHCD_ACL_ACTION_ALLOW) {
             mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
             return;
         }
@@ -504,33 +493,15 @@ static void shardcached_handle_put_request(shardcache_t *cache, struct mg_connec
         return;
     }
 
-    char *in = malloc(clen);
-    int rb = 0;
-    do {
-        int n = mg_read(conn, in+rb, clen-rb);
-        if (n == 0) {
-            // connection closed by peer
-            break;
-        } else if (n < 0) {
-            // error
-            break;
-        } else {
-            rb += n;
-        }
-    } while (rb != clen);
-    
-
-    shardcache_set(cache, key, strlen(key), in, rb);
-    free(in);
+    shardcache_set(cache, key, strlen(key), conn->content, conn->content_len);
 
     mg_printf(conn, "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n");
 }
 
 static int shardcached_request_handler(struct mg_connection *conn)
 {
-    struct mg_request_info *request_info = mg_get_request_info(conn);
-    shardcache_t *cache = request_info->user_data;
-    char *key = (char *)request_info->uri;
+    shardcache_t *cache = conn->server_param;
+    char *key = (char *)conn->uri;
     int basepath_found = 0;
 
     int basepath_len = strlen(config.basepath);
@@ -550,7 +521,7 @@ static int shardcached_request_handler(struct mg_connection *conn)
                 key++;
         } else {
             if (!basepaths_differ) {
-                SHC_ERROR("Bad request uri : %s", request_info->uri);
+                SHC_ERROR("Bad request uri : %s", conn->uri);
                 mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
                 __sync_sub_and_fetch(&shcd_active_requests, 1);
                 return 1;
@@ -576,7 +547,7 @@ static int shardcached_request_handler(struct mg_connection *conn)
                 return 1;
             }
 
-            if (strncasecmp(request_info->request_method, "GET", 3) == 0)
+            if (strncasecmp(conn->request_method, "GET", 3) == 0)
                 shardcached_handle_admin_request(cache, conn, key, 0);
             else
                 mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length 9\r\n\r\nForbidden");
@@ -592,7 +563,7 @@ static int shardcached_request_handler(struct mg_connection *conn)
     if ((!baseadminpath_len || !basepaths_differ) &&
         (strcmp(key, "__stats__") == 0 || strcmp(key, "__index__") == 0 || strcmp(key, "__health__") == 0))
     {
-        if (strncasecmp(request_info->request_method, "GET", 3) == 0)
+        if (strncasecmp(conn->request_method, "GET", 3) == 0)
             shardcached_handle_admin_request(cache, conn, key, 0);
         else
             mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length 9\r\n\r\nForbidden");
@@ -602,13 +573,13 @@ static int shardcached_request_handler(struct mg_connection *conn)
     }
 
     // handle the actual GET/PUT/DELETE request
-    if (strncasecmp(request_info->request_method, "GET", 3) == 0)
+    if (strncasecmp(conn->request_method, "GET", 3) == 0)
         shardcached_handle_get_request(cache, conn, key, 0);
-    else if (strncasecmp(request_info->request_method, "HEAD", 4) == 0)
+    else if (strncasecmp(conn->request_method, "HEAD", 4) == 0)
         shardcached_handle_get_request(cache, conn, key, 1);
-    else if (strncasecmp(request_info->request_method, "DELETE", 6) == 0)
+    else if (strncasecmp(conn->request_method, "DELETE", 6) == 0)
         shardcached_handle_delete_request(cache, conn, key);
-    else if (strncasecmp(request_info->request_method, "PUT", 3) == 0)
+    else if (strncasecmp(conn->request_method, "PUT", 3) == 0)
         shardcached_handle_put_request(cache, conn, key);
     else
         mg_printf(conn, "HTTP/1.0 405 Method Not Allowed\r\nContent-Length: 11\r\n\r\nNot Allowed");
@@ -618,26 +589,40 @@ static int shardcached_request_handler(struct mg_connection *conn)
     return 1;
 }
 
-static void shardcached_run(shardcache_t *cache, uint32_t stats_interval)
+static void
+shardcached_run(struct mg_server *http_server, shardcache_t *cache, uint32_t stats_interval)
 {
     if (stats_interval) {
         hashtable_t *prevcounters = ht_create(32, 256, free);
-        while (!__sync_fetch_and_add(&should_exit, 0)) {
-            int rc = 0;
-            struct timespec to_sleep = {
-                .tv_sec = stats_interval,
-                .tv_nsec = 0
-            };
-            struct timespec remainder = { 0, 0 };
+        unsigned int to_poll = stats_interval;
 
-            do {
-                rc = nanosleep(&to_sleep, &remainder);
-                if (__sync_fetch_and_add(&should_exit, 0))
-                    break;
-                memcpy(&to_sleep, &remainder, sizeof(struct timespec));
-                memset(&remainder, 0, sizeof(struct timespec));
-            } while (rc != 0);
+        while (!__sync_fetch_and_add(&should_exit, 0))
+        {
+            if (http_server) {
+                unsigned int ctime = mg_poll_server(http_server, to_poll * 1000);
+                unsigned int now = time(NULL); 
+                if (to_poll > (now - ctime)) {
+                    to_poll -= (now - ctime);
+                    continue;
+                }
+            } else {
+                int rc = 0;
+                struct timespec to_sleep = {
+                    .tv_sec = stats_interval,
+                    .tv_nsec = 0
+                };
+                struct timespec remainder = { 0, 0 };
 
+                do {
+                    rc = nanosleep(&to_sleep, &remainder);
+                    if (__sync_fetch_and_add(&should_exit, 0))
+                        break;
+                    memcpy(&to_sleep, &remainder, sizeof(struct timespec));
+                    memset(&remainder, 0, sizeof(struct timespec));
+                } while (rc != 0);
+            }
+            
+            to_poll = stats_interval;
             shardcache_counter_t *counters;
             int ncounters = shardcache_get_counters(cache, &counters);
             int i;
@@ -672,9 +657,10 @@ static void shardcached_run(shardcache_t *cache, uint32_t stats_interval)
     } else {
         while (!__sync_fetch_and_add(&should_exit, 0)) {
             // and keep waiting until we are told to exit
-            pthread_mutex_lock(&exit_lock);
-            pthread_cond_wait(&exit_cond, &exit_lock);
-            pthread_mutex_unlock(&exit_lock);
+            if (http_server)
+                mg_poll_server(http_server, 1000);
+            else
+                sleep(1);
         }
     }
 }
@@ -957,18 +943,9 @@ int config_handler(void *user,
     }
     else if (strcmp(section, "http") == 0)
     {
-        if (strcmp(name, "num_workers") == 0)
-        {
-            config->num_http_workers = strtol(value, NULL, 10);
-        }
-        else if (strcmp(name, "access_log") == 0)
+        if (strcmp(name, "access_log") == 0)
         {
             snprintf(config->access_log_file, sizeof(config->access_log_file),
-                    "%s", value);
-        }
-        else if (strcmp(name, "error_log") == 0)
-        {
-            snprintf(config->error_log_file, sizeof(config->error_log_file),
                     "%s", value);
         }
         else if (strcmp(name, "basepath") == 0)
@@ -1063,7 +1040,6 @@ void parse_cmdline(int argc, char **argv)
     static struct option long_options[] = {
         {"cfgfile", 2, 0, 'c'},
         {"access_log", 2, 0, 'a'},
-        {"error_log", 2, 0, 'e'},
         {"basepath", 2, 0, 'b'},
         {"baseadminpath", 2, 0, 'B'},
         {"plugins_directory", 2, 0, 'd'},
@@ -1088,7 +1064,7 @@ void parse_cmdline(int argc, char **argv)
     };
 
     char c;
-    while ((c = getopt_long (argc, argv, "a:b:B:c:d:e:fg:hHi:l:m:n:Np:s:S:t:o:u:vw:x:?",
+    while ((c = getopt_long (argc, argv, "a:b:B:c:d:fg:hHi:l:m:n:Np:s:S:t:o:u:vw:x:?",
                              long_options, &option_index)))
     {
         if (c == -1) {
@@ -1120,10 +1096,6 @@ void parse_cmdline(int argc, char **argv)
                     optarg++;
                 snprintf(config.baseadminpath,
                         sizeof(config.baseadminpath), "%s", optarg);
-                break;
-            case 'e':
-                snprintf(config.error_log_file,
-                        sizeof(config.error_log_file), "%s", optarg);
                 break;
             case 'f':
                 config.foreground = 1;
@@ -1340,33 +1312,35 @@ int main(int argc, char **argv)
     shardcache_evict_on_delete(cache, config.evict_on_delete);
 
     // initialize the mongoose callbacks descriptor
-    struct mg_callbacks shardcached_callbacks = {
-        .begin_request = shardcached_request_handler
-    };
-
-    char http_workers[6];
-    snprintf(http_workers, sizeof(http_workers), "%d", config.num_http_workers);
-    const char *mongoose_options[] = { "listening_ports", config.listen_address,
+    const char *mongoose_options[] = { "listening_port", config.listen_address,
                                        "access_log_file", config.access_log_file,
-                                       "error_log_file",  config.error_log_file,
-                                       "num_threads",     http_workers,
                                         NULL };
 
     // let's start mongoose
     int rc = 0;
-    struct mg_context *ctx = NULL;
+    struct mg_server *http_server = NULL;
 
     if (config.nohttp) {
         SHC_NOTICE("HTTP subsystem has been administratively disabled");
     } else {
-        ctx = mg_start(&shardcached_callbacks,
-                       cache,
-                       mongoose_options);
-        if (!ctx) {
+        http_server = mg_create_server(cache);
+    
+        if (!http_server) {
             SHC_ERROR("Can't start the HTTP subsystem");
             rc = -98;
             goto __exit;
         }
+        
+        for (i = 0; mongoose_options[i]; i += 2) {
+            const char *msg = mg_set_option(http_server, mongoose_options[i], mongoose_options[i+1]);
+            if (msg != NULL) {
+                SHC_ERROR("Failed to set mongoose option [%s]: %s",
+                           mongoose_options[i], msg);
+                rc = -97;
+                goto __exit;
+            }
+        }
+        mg_add_uri_handler(http_server, "/",  shardcached_request_handler);
     }
 
     /* lose root privileges if we have them */
@@ -1397,8 +1371,8 @@ int main(int argc, char **argv)
     if (config.migration_nodes)
         shardcache_migration_begin(cache, config.migration_nodes, config.num_migration_nodes, 1);
 
-    if (ctx || config.nohttp) {
-        shardcached_run(cache, config.stats_interval);
+    if (http_server || config.nohttp) {
+        shardcached_run(http_server, cache, config.stats_interval);
     } else {
         SHC_ERROR("Can't start the http subsystem");
     }
@@ -1406,8 +1380,8 @@ int main(int argc, char **argv)
 __exit:
     SHC_NOTICE("exiting");
 
-    if (ctx)
-        mg_stop(ctx);
+    if (http_server)
+        mg_destroy_server(&http_server);
 
     if (http_acl)
         shcd_acl_destroy(http_acl);

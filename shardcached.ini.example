@@ -34,7 +34,6 @@ secret = default                               ; Shared secret used for message 
 listen = *:4321                                ; HTTP address:port where to listen for incoming connections (optional)
 num_workers = 50                               ; Number of http worker threads (optional, defaults to '10')
 access_log = ./shardcached_access.log          ; Path to the acces_log file (optional)
-error_log = ./shardcached_error.log            ; Path to the error_log file (optional)
 basepath = shardcache                          ; Base http path (optional) 
 baseadminpath = admin                          ; Base http path for administrative pages (optional, will be the same as basepath if not defined) 
 acl_default = allow                            ; Default behavior for paths not matching any of those defined 

@@ -2,8 +2,6 @@
    (like when shardcache_get()/set() is called from an http thread and
     it involves fetching/sending data from/to a peer)
 
- * support expiration of keys once ready in libshardcache
-
  * datapipe fetch requests by serving chunks of data while downloading
    them from a peer ... this would speedup get requests which involve
    fetching the data from a peer.
