@@ -288,18 +288,24 @@ shardcached_handle_get_request(http_worker_t *wrk, struct mg_connection *conn, c
             }
         }
 
-        char *mtype = "application/octet-stream";
+        char *mtype = NULL;
         if (wrk->mime_types) {
             char *p = key;
             while (*p && *p != '.')
                 p++;
             if (*p && *(p+1)) {
                 p++;
-                char *mt = (char *)ht_get(wrk->mime_types, p, strlen(p), NULL);
-                if (mt)
-                    mtype = mt;
+                mtype = (char *)ht_get(wrk->mime_types, p, strlen(p), NULL);
+                if (!mtype)
+                    mtype = (char *)mg_get_mime_type(key);
             }
+        } else {
+            mtype = (char *)mg_get_mime_type(key);
         }
+
+        if (!mtype)
+            mtype = "application/octet-stream";
+
         char timestamp[256];
         struct tm gmts;
         strftime(timestamp, sizeof(timestamp), "%a, %d %b %Y %T %z", gmtime_r(&ts.tv_sec, &gmts));
