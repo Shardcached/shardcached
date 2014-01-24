@@ -21,7 +21,7 @@
 #include <sys/types.h>
 #include <pwd.h>
 
-#include <mongoose.h>
+#include "shcd_http.h"
 
 #include <pthread.h>
 #include <regex.h>
@@ -32,7 +32,6 @@
 
 #include "storage.h"
 #include "ini.h"
-#include "acl.h"
 
 #define SHARDCACHED_ADDRESS_DEFAULT "4321"
 #define SHARDCACHED_LOGLEVEL_DEFAULT 0
@@ -43,6 +42,7 @@
 #define SHARDCACHED_CACHE_SIZE_DEFAULT 1<<29
 #define SHARDCACHED_STATS_INTERVAL_DEFAULT 0
 #define SHARDCACHED_NUM_WORKERS_DEFAULT 10
+#define SHARDCACHED_NUM_HTTP_WORKERS_DEFAULT 10
 #define SHARDCACHED_PLUGINS_DIR_DEFAULT "./"
 #define SHARDCACHED_ACCESS_LOG_DEFAULT "./shardcached_access.log"
 #define SHARDCACHED_PIDFILE_DEFAULT NULL
@@ -52,14 +52,8 @@
 
 #define ADDR_REGEXP "^([a-z0-9_\\.\\-]+|\\*)(:[0-9]+)?$"
 
-#define HTTP_HEADERS_BASE "HTTP/1.0 200 OK\r\n" \
-                          "Content-Type: %s\r\n" \
-                          "Content-Length: %d\r\n" \
-                          "Server: shardcached\r\n" \
-                          "Connection: Close\r\n"
-#define HTTP_HEADERS HTTP_HEADERS_BASE "\r\n"
-#define HTTP_HEADERS_WITH_TIME HTTP_HEADERS_BASE "Last-Modified: %s\r\n\r\n"
-
+static pthread_cond_t exit_cond = PTHREAD_COND_INITIALIZER;
+static pthread_mutex_t exit_lock = PTHREAD_MUTEX_INITIALIZER;
 static int should_exit = 0;
 static shcd_acl_t *http_acl = NULL;
 static hashtable_t *mime_types = NULL;
@@ -81,6 +75,7 @@ typedef struct {
     uint32_t stats_interval;
     char plugins_dir[1024];
     int num_workers;
+    int num_http_workers;
     char access_log_file[1024];
     size_t cache_size;
     int evict_on_delete;
@@ -109,6 +104,7 @@ static shardcached_config_t config = {
     .stats_interval = SHARDCACHED_STATS_INTERVAL_DEFAULT,
     .plugins_dir = SHARDCACHED_PLUGINS_DIR_DEFAULT,
     .num_workers = SHARDCACHED_NUM_WORKERS_DEFAULT,
+    .num_http_workers = SHARDCACHED_NUM_HTTP_WORKERS_DEFAULT,
     .access_log_file = SHARDCACHED_ACCESS_LOG_DEFAULT,
     .cache_size = SHARDCACHED_CACHE_SIZE_DEFAULT,
     .evict_on_delete = 1,
@@ -150,6 +146,7 @@ static void usage(char *progname, char *msg, ...)
            "    -u <username>         assume the identity of <username> (only when run as root)\n"
            "    -v                    increase the log level (can be passed multiple times)\n"
            "    -w <num_workers>      number of shardcache worker threads (defaults to '%d')\n"
+           "    -W <num_http_workers> number of http worker threads (defaults to '%d')\n"
            "    -x <nodes>            new list of nodes to migrate the shardcache to. The format to use is the same as for the '-n' option\n"
            "\n"
            "       Builtin storage types:\n"
@@ -170,7 +167,8 @@ static void usage(char *progname, char *msg, ...)
            , SHARDCACHED_SECRET_DEFAULT
            , SHARDCACHED_STORAGE_TYPE_DEFAULT
            , SHARDCACHED_STORAGE_OPTIONS_DEFAULT
-           , SHARDCACHED_NUM_WORKERS_DEFAULT);
+           , SHARDCACHED_NUM_WORKERS_DEFAULT
+           , SHARDCACHED_NUM_HTTP_WORKERS_DEFAULT);
 
     exit(-2);
 }
@@ -178,6 +176,9 @@ static void usage(char *progname, char *msg, ...)
 static void shardcached_stop(int sig)
 {
     __sync_add_and_fetch(&should_exit, 1);
+    pthread_mutex_lock(&exit_lock);
+    pthread_cond_signal(&exit_cond);
+    pthread_mutex_unlock(&exit_lock);
 }
 
 static void shardcached_do_nothing(int sig)
@@ -185,444 +186,26 @@ static void shardcached_do_nothing(int sig)
     SHC_DEBUG1("Signal %d received ... doing nothing\n", sig);
 }
 
-static int shcd_active_requests = 0;
-
-static void shardcached_build_index_response(fbuf_t *buf, int do_html, shardcache_t *cache)
-{
-    int i;
-
-    shardcache_storage_index_t *index = shardcache_get_index(cache);
-
-    if (do_html) {
-        fbuf_printf(buf,
-                    "<html><body>"
-                    "<table bgcolor='#000000' "
-                    "cellspacing='1' "
-                    "cellpadding='4'>"
-                    "<tr bgcolor='#ffffff'>"
-                    "<td><b>Key</b></td>"
-                    "<td><b>Value size</b></td>"
-                    "</tr>");
-    }
-    for (i = 0; i < index->size; i++) {
-        size_t klen = index->items[i].klen;
-        char keystr[klen * 5 + 1];
-        char *t = keystr;
-        char c;
-        int p;
-        for (p = 0 ; p < klen ; ++p) {
-            c = ((char*)index->items[i].key)[p];
-            if (c == '<')
-                t = stpcpy(t, "&lt;");
-            else if (c == '>')
-                t = stpcpy(t, "&gt;");
-            else if (c == '&')
-                t = stpcpy(t, "&amp;");
-            else if (c < ' ') {
-                sprintf(t, "\\x%2x", (int)c);
-                t += 4;
-            }
-            else
-                *t++ = c;
-        }
-        *t = 0;
-        if (do_html)
-            fbuf_printf(buf,
-                        "<tr bgcolor='#ffffff'><td>%s</td>"
-                        "<td>(%d)</td></tr>",
-                        keystr,
-                        index->items[i].vlen);
-        else
-            fbuf_printf(buf,
-                        "%s;%d\r\n",
-                        keystr,
-                        index->items[i].vlen);
-    }
-
-    if (do_html)
-        fbuf_printf(buf, "</table></body></html>");
-
-    shardcache_free_index(index);
-}
-
-static void shardcached_build_stats_response(fbuf_t *buf, int do_html, shardcache_t *cache)
-{
-    int i;
-    int num_nodes = 0;
-    shardcache_node_t *nodes = shardcache_get_nodes(cache, &num_nodes);
-    if (do_html) {
-        fbuf_printf(buf,
-                    "<html><body>"
-                    "<h1>%s</h1>"
-                    "<table bgcolor='#000000' "
-                    "cellspacing='1' "
-                    "cellpadding='4'>"
-                    "<tr bgcolor='#ffffff'>"
-                    "<td><b>Counter</b></td>"
-                    "<td><b>Value</b></td>"
-                    "</tr>"
-                    "<tr bgcolor='#ffffff'>"
-                    "<td>active_http_requests</td>"
-                    "<td>%d</td>"
-                    "</tr>"
-                    "<tr bgcolor='#ffffff'>"
-                    "<td>num_nodes</td>"
-                    "<td>%d</td>"
-                    "</tr>",
-                    config.me,
-                    __sync_fetch_and_add(&shcd_active_requests, 0),
-                    num_nodes);
-
-        for (i = 0; i < num_nodes; i++) {
-            fbuf_printf(buf,
-                        "<tr bgcolor='#ffffff'>"
-                        "<td>node::%s</td><td>%s</td>"
-                        "</td></tr>",
-                        nodes[i].label, nodes[i].address);
-        }
-    } else {
-        fbuf_printf(buf,
-                    "active_http_requests;%d\r\nnum_nodes;%d\r\n",
-                    __sync_fetch_and_add(&shcd_active_requests, 0),
-                    num_nodes);
-        for (i = 0; i < num_nodes; i++) {
-            fbuf_printf(buf, "node::%s;%s\r\n", nodes[i].label, nodes[i].address);
-        }
-    }
-
-    if (nodes)
-        free(nodes);
-
-    shardcache_counter_t *counters;
-    int ncounters = shardcache_get_counters(cache, &counters);
-
-    for (i = 0; i < ncounters; i++) {
-        if (do_html)
-            fbuf_printf(buf,
-                        "<tr bgcolor='#ffffff'><td>%s</td><td>%u</td></tr>",
-                        counters[i].name,
-                        counters[i].value);
-        else
-            fbuf_printf(buf,
-                        "%s;%u\r\n",
-                        counters[i].name,
-                        counters[i].value);
-    }
-    if (do_html)
-        fbuf_printf(buf, "</table></body></html>");
-    free(counters);
-}
-
-static void shardcached_handle_admin_request(shardcache_t *cache, struct mg_connection *conn, char *key, int is_head)
-{
-    if (http_acl) {
-        shcd_acl_method_t method = SHCD_ACL_METHOD_GET;
-        struct in_addr remote_addr;
-        inet_aton(conn->remote_ip, &remote_addr);
-        if (shcd_acl_eval(http_acl, method, key, remote_addr.s_addr) != SHCD_ACL_ACTION_ALLOW) {
-            mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
-            return;
-        }
-    }
-
-    if (strcmp(key, "__stats__") == 0) {
-        int do_html = (!conn->query_string ||
-                       !strstr(conn->query_string, "nohtml=1"));
-
-        fbuf_t buf = FBUF_STATIC_INITIALIZER;
-        shardcached_build_stats_response(&buf, do_html, cache);
-
-        mg_printf(conn, HTTP_HEADERS,
-                        do_html ? "text/html" : "text/plain",
-                        fbuf_used(&buf));
-
-        if (!is_head)
-            mg_printf(conn, "%s", fbuf_data(&buf));
-
-        fbuf_destroy(&buf);
-
-    } else if (strcmp(key, "__index__") == 0) {
-        fbuf_t buf = FBUF_STATIC_INITIALIZER;
-        int do_html = (!conn->query_string ||
-                       !strstr(conn->query_string, "nohtml=1"));
-
-        shardcached_build_index_response(&buf, do_html, cache);
-
-        mg_printf(conn, HTTP_HEADERS,
-                        do_html ? "text/html" : "text/plain",
-                        fbuf_used(&buf));
-
-        if (!is_head)
-            mg_printf(conn, "%s", fbuf_data(&buf));
-
-        fbuf_destroy(&buf);
-    } else if (strcmp(key, "__health__") == 0) {
-        int do_html = (!conn->query_string ||
-                       !strstr(conn->query_string, "nohtml=1"));
-
-        char *resp = do_html ? "<html><body>OK</body></html>" : "OK";
-
-        mg_printf(conn, HTTP_HEADERS,
-                        do_html ? "text/html" : "text/plain",
-                        (int)strlen(resp));
-
-        if (!is_head)
-            mg_printf(conn, "%s", resp);
-    } else {
-        mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
-    }
-}
-
-static void shardcached_handle_get_request(shardcache_t *cache, struct mg_connection *conn, char *key, int is_head)
-{
-    if (http_acl) {
-        shcd_acl_method_t method = SHCD_ACL_METHOD_GET;
-        struct in_addr remote_addr;
-        inet_aton(conn->remote_ip, &remote_addr);
-        if (shcd_acl_eval(http_acl, method, key, remote_addr.s_addr) != SHCD_ACL_ACTION_ALLOW) {
-            mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
-            return;
-        }
-    }
-
-    size_t vlen = 0;
-    struct timeval ts = { 0, 0 };
-    void *value = NULL;
-    if (is_head) {
-        vlen = shardcache_head(cache, key, strlen(key), NULL, 0, &ts);
-    } else {
-        value = shardcache_get(cache, key, strlen(key), &vlen, &ts);
-    }
-
-    if (vlen) {
-        int i;
-        for (i = 0; i < conn->num_headers; i++) {
-            struct tm tm;
-            const char *hdr_name = conn->http_headers[i].name;
-            const char *hdr_value = conn->http_headers[i].value;
-            if (strcasecmp(hdr_name, "If-Modified-Since") == 0) {
-                if (strptime(hdr_value, "%a, %d %b %Y %T %z", &tm) != NULL) {
-                    time_t time = mktime(&tm);
-                    if (ts.tv_sec < time) {
-                        mg_printf(conn, "HTTP/1.0 304 Not Modified\r\nContent-Length: 12\r\n\r\nNot Modified");
-                        if (value)
-                            free(value);
-                        return;
-                    }
-                }
-            } else if (strcasecmp(hdr_name, "If-Unmodified-Since") == 0) {
-                if (strptime(hdr_value, "%a, %d %b %Y %T %z", &tm) != NULL) {
-                    time_t time = mktime(&tm);
-                    if (ts.tv_sec > time) {
-                        mg_printf(conn, "HTTP/1.0 412 Precondition Failed\r\nContent-Length: 19\r\n\r\nPrecondition Failed");
-                        if (value)
-                            free(value);
-                        return;
-                    }
-
-                }
-            }
-        }
-
-        char *mtype = "application/octet-stream";
-        if (mime_types) {
-            char *p = key;
-            while (*p && *p != '.')
-                p++;
-            if (*p && *(p+1)) {
-                p++;
-                char *mt = (char *)ht_get(mime_types, p, strlen(p), NULL);
-                if (mt)
-                    mtype = mt;
-            }
-        }
-        char timestamp[256];
-        struct tm gmts;
-        strftime(timestamp, sizeof(timestamp), "%a, %d %b %Y %T %z", gmtime_r(&ts.tv_sec, &gmts));
-        mg_printf(conn, HTTP_HEADERS_WITH_TIME, mtype, (int)vlen, timestamp);
-
-        if (!is_head && value)
-            mg_write(conn, value, vlen);
-
-        if (value)
-            free(value);
-    } else {
-        mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
-    }
-}
-
-static void shardcached_handle_delete_request(shardcache_t *cache, struct mg_connection *conn, char *key)
-{
-    if (http_acl) {
-        shcd_acl_method_t method = SHCD_ACL_METHOD_DEL;
-        struct in_addr remote_addr;
-        inet_aton(conn->remote_ip, &remote_addr);
-        if (shcd_acl_eval(http_acl, method, key, remote_addr.s_addr) != SHCD_ACL_ACTION_ALLOW) {
-            mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
-            return;
-        }
-    }
-
-    int rc = shardcache_del(cache, key, strlen(key));
-    mg_printf(conn, "HTTP/1.0 %s\r\n"
-                    "Content-Length: 0\r\n\r\n",
-                     rc == 0 ? "200 OK" : "500 ERR");
-
-}
-
-static void shardcached_handle_put_request(shardcache_t *cache, struct mg_connection *conn, char *key)
-{
-    if (http_acl) {
-        shcd_acl_method_t method = SHCD_ACL_METHOD_PUT;
-        struct in_addr remote_addr;
-        inet_aton(conn->remote_ip, &remote_addr);
-        if (shcd_acl_eval(http_acl, method, key, remote_addr.s_addr) != SHCD_ACL_ACTION_ALLOW) {
-            mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
-            return;
-        }
-    }
-
-    int clen = 0;
-    const char *clen_hdr = mg_get_header(conn, "Content-Length");
-    if (clen_hdr) {
-        clen = strtol(clen_hdr, NULL, 10); 
-    }
-    
-    if (!clen) {
-        mg_printf(conn, "HTTP/1.0 400 Bad Request\r\nContent-Length: 0\r\n\r\n");
-        return;
-    }
-
-    shardcache_set(cache, key, strlen(key), conn->content, conn->content_len);
-
-    mg_printf(conn, "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n");
-}
-
-static int shardcached_request_handler(struct mg_connection *conn)
-{
-    shardcache_t *cache = conn->server_param;
-    char *key = (char *)conn->uri;
-    int basepath_found = 0;
-
-    int basepath_len = strlen(config.basepath);
-    int baseadminpath_len = strlen(config.baseadminpath);
-    int basepaths_differ = (basepath_len != baseadminpath_len || strcmp(config.basepath, config.baseadminpath) != 0);
-
-    __sync_add_and_fetch(&shcd_active_requests, 1);
-
-    while (*key == '/' && *key)
-        key++;
-
-    if (basepath_len) {
-        if (strncmp(key, config.basepath, basepath_len) == 0) {
-            key += basepath_len + 1;
-            basepath_found = 1;
-            while (*key == '/' && *key)
-                key++;
-        } else {
-            if (!basepaths_differ) {
-                SHC_ERROR("Bad request uri : %s", conn->uri);
-                mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
-                __sync_sub_and_fetch(&shcd_active_requests, 1);
-                return 1;
-            }
-        }
-    }
-
-    if (*key == 0) {
-        mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length 9\r\n\r\nNot Found");
-        __sync_sub_and_fetch(&shcd_active_requests, 1);
-        return 1;
-    }
-
-    if (baseadminpath_len && basepaths_differ) {
-        if (!basepath_found && strncmp(key, config.baseadminpath, baseadminpath_len) == 0) {
-            key += baseadminpath_len + 1;
-
-            while (*key == '/' && *key)
-                key++;
-            if (*key == 0) {
-                mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length 9\r\n\r\nNot Found");
-                __sync_sub_and_fetch(&shcd_active_requests, 1);
-                return 1;
-            }
-
-            if (strncasecmp(conn->request_method, "GET", 3) == 0)
-                shardcached_handle_admin_request(cache, conn, key, 0);
-            else
-                mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length 9\r\n\r\nForbidden");
-            __sync_sub_and_fetch(&shcd_active_requests, 1);
-            return 1;
-        }
-    }
-
-    // if baseadminpath is not defined or it's the same as basepath,
-    // we need to check for the "special" admin keys and handle them differently
-    // (in such cases the labels __stats__, __index__ and __health__ become reserved
-    // and can't be used as keys from the http interface)
-    if ((!baseadminpath_len || !basepaths_differ) &&
-        (strcmp(key, "__stats__") == 0 || strcmp(key, "__index__") == 0 || strcmp(key, "__health__") == 0))
-    {
-        if (strncasecmp(conn->request_method, "GET", 3) == 0)
-            shardcached_handle_admin_request(cache, conn, key, 0);
-        else
-            mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length 9\r\n\r\nForbidden");
-        __sync_sub_and_fetch(&shcd_active_requests, 1);
-        return 1;
-
-    }
-
-    // handle the actual GET/PUT/DELETE request
-    if (strncasecmp(conn->request_method, "GET", 3) == 0)
-        shardcached_handle_get_request(cache, conn, key, 0);
-    else if (strncasecmp(conn->request_method, "HEAD", 4) == 0)
-        shardcached_handle_get_request(cache, conn, key, 1);
-    else if (strncasecmp(conn->request_method, "DELETE", 6) == 0)
-        shardcached_handle_delete_request(cache, conn, key);
-    else if (strncasecmp(conn->request_method, "PUT", 3) == 0)
-        shardcached_handle_put_request(cache, conn, key);
-    else
-        mg_printf(conn, "HTTP/1.0 405 Method Not Allowed\r\nContent-Length: 11\r\n\r\nNot Allowed");
-
-
-    __sync_sub_and_fetch(&shcd_active_requests, 1);
-    return 1;
-}
-
-static void
-shardcached_run(struct mg_server *http_server, shardcache_t *cache, uint32_t stats_interval)
+static void shardcached_run(shardcache_t *cache, uint32_t stats_interval)
 {
     if (stats_interval) {
         hashtable_t *prevcounters = ht_create(32, 256, free);
-        unsigned int to_poll = stats_interval;
+        while (!__sync_fetch_and_add(&should_exit, 0)) {
+            int rc = 0;
+            struct timespec to_sleep = {
+                .tv_sec = stats_interval,
+                .tv_nsec = 0
+            };
+            struct timespec remainder = { 0, 0 };
 
-        while (!__sync_fetch_and_add(&should_exit, 0))
-        {
-            if (http_server) {
-                unsigned int ctime = mg_poll_server(http_server, to_poll * 1000);
-                unsigned int now = time(NULL); 
-                if (to_poll > (now - ctime)) {
-                    to_poll -= (now - ctime);
-                    continue;
-                }
-            } else {
-                int rc = 0;
-                struct timespec to_sleep = {
-                    .tv_sec = stats_interval,
-                    .tv_nsec = 0
-                };
-                struct timespec remainder = { 0, 0 };
+            do {
+                rc = nanosleep(&to_sleep, &remainder);
+                if (__sync_fetch_and_add(&should_exit, 0))
+                    break;
+                memcpy(&to_sleep, &remainder, sizeof(struct timespec));
+                memset(&remainder, 0, sizeof(struct timespec));
+            } while (rc != 0);
 
-                do {
-                    rc = nanosleep(&to_sleep, &remainder);
-                    if (__sync_fetch_and_add(&should_exit, 0))
-                        break;
-                    memcpy(&to_sleep, &remainder, sizeof(struct timespec));
-                    memset(&remainder, 0, sizeof(struct timespec));
-                } while (rc != 0);
-            }
-            
-            to_poll = stats_interval;
             shardcache_counter_t *counters;
             int ncounters = shardcache_get_counters(cache, &counters);
             int i;
@@ -657,10 +240,9 @@ shardcached_run(struct mg_server *http_server, shardcache_t *cache, uint32_t sta
     } else {
         while (!__sync_fetch_and_add(&should_exit, 0)) {
             // and keep waiting until we are told to exit
-            if (http_server)
-                mg_poll_server(http_server, 1000);
-            else
-                sleep(1);
+            pthread_mutex_lock(&exit_lock);
+            pthread_cond_wait(&exit_cond, &exit_lock);
+            pthread_mutex_unlock(&exit_lock);
         }
     }
 }
@@ -813,7 +395,11 @@ int config_handler(void *user,
     }
     else if (strcmp(section, "shardcached") == 0)
     {
-        if (strcmp(name, "stats_interval") == 0) {
+        if (strcmp(name, "num_http_workers") == 0)
+        {
+            config->num_http_workers = strtol(value, NULL, 10);
+        }
+        else if (strcmp(name, "stats_interval") == 0) {
             config->stats_interval = strtol(value, NULL, 10);
         }
         else if (strcmp(name, "storage_type") == 0)
@@ -1157,6 +743,9 @@ void parse_cmdline(int argc, char **argv)
             case 'w':
                 config.num_workers = strtol(optarg, NULL, 10);
                 break;
+            case 'W':
+                config.num_http_workers = strtol(optarg, NULL, 10);
+                break;
             case 'x':
                 // first reset the actual migration_nodes configuration
                 // (which might come from the cfg file)
@@ -1311,36 +900,31 @@ int main(int argc, char **argv)
 
     shardcache_evict_on_delete(cache, config.evict_on_delete);
 
-    // initialize the mongoose callbacks descriptor
-    const char *mongoose_options[] = { "listening_port", config.listen_address,
-                                       "access_log_file", config.access_log_file,
-                                        NULL };
-
-    // let's start mongoose
+    shcd_http_t *http_server = NULL;
     int rc = 0;
-    struct mg_server *http_server = NULL;
 
     if (config.nohttp) {
         SHC_NOTICE("HTTP subsystem has been administratively disabled");
     } else {
-        http_server = mg_create_server(cache);
-    
+        // initialize the http options
+        const char *mongoose_options[] = { "listening_port", config.listen_address,
+                                           "access_log_file", config.access_log_file,
+                                            NULL };
+
+        // and start the http subsystem
+        http_server = shcd_http_create(cache,
+                                       config.me,
+                                       config.basepath,
+                                       config.baseadminpath,
+                                       http_acl,
+                                       mime_types,
+                                       (const char **)mongoose_options,
+                                       config.num_http_workers);
         if (!http_server) {
-            SHC_ERROR("Can't start the HTTP subsystem");
-            rc = -98;
+            SHC_ERROR("Can't start the http subsystem!");
+            rc = -1;
             goto __exit;
         }
-        
-        for (i = 0; mongoose_options[i]; i += 2) {
-            const char *msg = mg_set_option(http_server, mongoose_options[i], mongoose_options[i+1]);
-            if (msg != NULL) {
-                SHC_ERROR("Failed to set mongoose option [%s]: %s",
-                           mongoose_options[i], msg);
-                rc = -97;
-                goto __exit;
-            }
-        }
-        mg_add_uri_handler(http_server, "/",  shardcached_request_handler);
     }
 
     /* lose root privileges if we have them */
@@ -1372,7 +956,7 @@ int main(int argc, char **argv)
         shardcache_migration_begin(cache, config.migration_nodes, config.num_migration_nodes, 1);
 
     if (http_server || config.nohttp) {
-        shardcached_run(http_server, cache, config.stats_interval);
+        shardcached_run(cache, config.stats_interval);
     } else {
         SHC_ERROR("Can't start the http subsystem");
     }
@@ -1381,7 +965,7 @@ __exit:
     SHC_NOTICE("exiting");
 
     if (http_server)
-        mg_destroy_server(&http_server);
+        shcd_http_destroy(http_server);
 
     if (http_acl)
         shcd_acl_destroy(http_acl);
