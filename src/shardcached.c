@@ -909,7 +909,6 @@ int main(int argc, char **argv)
         // initialize the http options
         const char *mongoose_options[] = { "listening_port", config.listen_address,
                                            "access_log_file", config.access_log_file,
-                                           "default_mime_type", "application/octet-stream",
                                             NULL };
 
         // and start the http subsystem
