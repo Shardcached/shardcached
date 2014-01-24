@@ -1,5 +1,5 @@
-#include "shcd_http.h"
-
+#define _GNU_SOURCE
+#include <time.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -12,6 +12,8 @@
 #include <fbuf.h>
 #include <errno.h>
 #include "mongoose.h"
+
+#include "shcd_http.h"
 
 #define HTTP_HEADERS_BASE "HTTP/1.0 200 OK\r\n" \
                           "Content-Type: %s\r\n" \
