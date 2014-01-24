@@ -297,14 +297,11 @@ shardcached_handle_get_request(http_worker_t *wrk, struct mg_connection *conn, c
                 p++;
                 mtype = (char *)ht_get(wrk->mime_types, p, strlen(p), NULL);
                 if (!mtype)
-                    mtype = (char *)mg_get_mime_type(wrk->server, key);
+                    mtype = (char *)mg_get_mime_type(key, "application/octet-stream");
             }
         } else {
-            mtype = (char *)mg_get_mime_type(wrk->server, key);
+            mtype = (char *)mg_get_mime_type(key, "application/octet-stream");
         }
-
-        if (!mtype)
-            mtype = "application/octet-stream";
 
         char timestamp[256];
         struct tm gmts;
