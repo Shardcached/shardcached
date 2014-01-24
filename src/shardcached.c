@@ -942,8 +942,12 @@ int main(int argc, char **argv)
             goto __exit;
         }
 
-        if (config.pidfile)
-            chown(config.pidfile, pw->pw_uid, pw->pw_gid);
+        if (config.pidfile && (chown(config.pidfile, pw->pw_uid, pw->pw_gid) == -1)) {
+            fprintf(stderr, "failed to chown pidfile %s\n",
+                    config.pidfile);
+            rc = -99;
+            goto __exit;
+        }
 
         if (setgid(pw->pw_gid) < 0 || setuid(pw->pw_uid) < 0) {
             fprintf(stderr, "failed to assume identity of user %s\n",
