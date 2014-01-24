@@ -1,5 +1,5 @@
 // Copyright (c) 2004-2013 Sergey Lyubka <valenok@gmail.com>
-// Copyright (c) 2013-2014 Cesanta Software Limited
+// Copyright (c) 2013 Cesanta Software Limited
 // All rights reserved
 //
 // This library is dual-licensed: you can redistribute it and/or modify
@@ -13,14 +13,14 @@
 // See the GNU General Public License for more details.
 //
 // Alternatively, you can license this library under a commercial
-// license, as set out in <http://cesanta.com/>.
+// license, as set out in <http://cesanta.com/products.html>.
 //
-// NOTE: Detailed API documentation is at http://cesanta.com/#docs
+// NOTE: Detailed API documentation is at http://cesanta.com/docs.html
 
 #ifndef MONGOOSE_HEADER_INCLUDED
 #define  MONGOOSE_HEADER_INCLUDED
 
-#define MONGOOSE_VERSION "5.2"
+#define MONGOOSE_VERSION "5.1"
 
 #include <stdio.h>      // required for FILE
 #include <stddef.h>     // required for size_t
@@ -46,11 +46,11 @@ struct mg_connection {
   } http_headers[30];
 
   char *content;              // POST (or websocket message) data, or NULL
-  size_t content_len;       // content length
+  int content_len;            // content length
 
   int is_websocket;           // Connection is a websocket connection
   int status_code;            // HTTP status code for HTTP error handler
-  int wsbits;                 // First byte of the websocket frame
+  unsigned char wsbits;       // First byte of the websocket frame
   void *server_param;         // Parameter passed to mg_add_uri_handler()
   void *connection_param;     // Placeholder for connection-specific data
 };
@@ -69,7 +69,9 @@ const char **mg_get_valid_option_names(void);
 const char *mg_get_option(const struct mg_server *server, const char *name);
 void mg_set_listening_socket(struct mg_server *, int sock);
 int mg_get_listening_socket(struct mg_server *);
-void mg_iterate_over_connections(struct mg_server *, mg_handler_t, void *);
+void mg_iterate_over_connections(struct mg_server *,
+                                 void (*func)(struct mg_connection *, void *),
+                                 void *param);
 
 // Connection management functions
 void mg_send_status(struct mg_connection *, int status_code);
@@ -90,27 +92,10 @@ const char *mg_get_mime_type(const char *file_name);
 int mg_get_var(const struct mg_connection *conn, const char *var_name,
                char *buf, size_t buf_len);
 int mg_parse_header(const char *hdr, const char *var_name, char *buf, size_t);
-int mg_parse_multipart(const char *buf, int buf_len,
-                       char *var_name, int var_name_len,
-                       char *file_name, int file_name_len,
-                       const char **data, int *data_len);
 
 // Utility functions
 void *mg_start_thread(void *(*func)(void *), void *param);
 char *mg_md5(char buf[33], ...);
-int mg_authorize_digest(struct mg_connection *c, FILE *fp);
-void mg_send_digest_auth_request(struct mg_connection *conn);
-
-// Callback return codes
-enum { MG_REPLY_TO_BE_CONTINUED, MG_REPLY_COMPLETED };
-
-// HTTP client events
-enum {
-  MG_CONNECT_SUCCESS, MG_CONNECT_FAILURE,
-  MG_DOWNLOAD_SUCCESS, MG_DOWNLOAD_FAILURE
-};
-int mg_connect(struct mg_server *, const char *host, int port, int use_ssl,
-               mg_handler_t handler, void *param);
 
 #ifdef __cplusplus
 }
