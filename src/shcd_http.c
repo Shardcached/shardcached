@@ -23,25 +23,24 @@
 
 typedef struct __http_worker_s {
     TAILQ_ENTRY(__http_worker_s) next;
-    queue_t *jobs;
     pthread_t th;
-} http_worker_t;
-
-struct __shcd_http_s {
+    struct mg_server *server;
     const char *me;
     const char *basepath;
     const char *adminpath;
     shardcache_t *cache;
     shcd_acl_t *acl;
     hashtable_t *mime_types;
-    int num_workers;
-    struct mg_server *server;
-    pthread_t ioth;
-    TAILQ_HEAD(, __http_worker_s) workers; 
     int leave;
+} http_worker_t;
+
+struct __shcd_http_s {
+    int num_workers;
+    TAILQ_HEAD(, __http_worker_s) workers; 
 };
 
 typedef struct __http_job_s {
+
 } http_job_t;
 
 static int shcd_active_requests = 0;
@@ -106,11 +105,11 @@ shardcached_build_index_response(fbuf_t *buf, int do_html, shardcache_t *cache)
 }
 
 static void
-shardcached_build_stats_response(fbuf_t *buf, int do_html, shcd_http_t *http)
+shardcached_build_stats_response(fbuf_t *buf, int do_html, http_worker_t *wrk)
 {
     int i;
     int num_nodes = 0;
-    shardcache_node_t *nodes = shardcache_get_nodes(http->cache, &num_nodes);
+    shardcache_node_t *nodes = shardcache_get_nodes(wrk->cache, &num_nodes);
     if (do_html) {
         fbuf_printf(buf,
                     "<html><body>"
@@ -130,7 +129,7 @@ shardcached_build_stats_response(fbuf_t *buf, int do_html, shcd_http_t *http)
                     "<td>num_nodes</td>"
                     "<td>%d</td>"
                     "</tr>",
-                    http->me,
+                    wrk->me,
                     __sync_fetch_and_add(&shcd_active_requests, 0),
                     num_nodes);
 
@@ -155,7 +154,7 @@ shardcached_build_stats_response(fbuf_t *buf, int do_html, shcd_http_t *http)
         free(nodes);
 
     shardcache_counter_t *counters;
-    int ncounters = shardcache_get_counters(http->cache, &counters);
+    int ncounters = shardcache_get_counters(wrk->cache, &counters);
 
     for (i = 0; i < ncounters; i++) {
         if (do_html)
@@ -175,13 +174,13 @@ shardcached_build_stats_response(fbuf_t *buf, int do_html, shcd_http_t *http)
 }
 
 static void
-shardcached_handle_admin_request(shcd_http_t *http, struct mg_connection *conn, char *key, int is_head)
+shardcached_handle_admin_request(http_worker_t *wrk, struct mg_connection *conn, char *key, int is_head)
 {
-    if (http->acl) {
+    if (wrk->acl) {
         shcd_acl_method_t method = SHCD_ACL_METHOD_GET;
         struct in_addr remote_addr;
         inet_aton(conn->remote_ip, &remote_addr);
-        if (shcd_acl_eval(http->acl, method, key, remote_addr.s_addr) != SHCD_ACL_ACTION_ALLOW) {
+        if (shcd_acl_eval(wrk->acl, method, key, remote_addr.s_addr) != SHCD_ACL_ACTION_ALLOW) {
             mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
             return;
         }
@@ -192,7 +191,7 @@ shardcached_handle_admin_request(shcd_http_t *http, struct mg_connection *conn, 
                        !strstr(conn->query_string, "nohtml=1"));
 
         fbuf_t buf = FBUF_STATIC_INITIALIZER;
-        shardcached_build_stats_response(&buf, do_html, http);
+        shardcached_build_stats_response(&buf, do_html, wrk);
 
         mg_printf(conn, HTTP_HEADERS,
                         do_html ? "text/html" : "text/plain",
@@ -208,7 +207,7 @@ shardcached_handle_admin_request(shcd_http_t *http, struct mg_connection *conn, 
         int do_html = (!conn->query_string ||
                        !strstr(conn->query_string, "nohtml=1"));
 
-        shardcached_build_index_response(&buf, do_html, http->cache);
+        shardcached_build_index_response(&buf, do_html, wrk->cache);
 
         mg_printf(conn, HTTP_HEADERS,
                         do_html ? "text/html" : "text/plain",
@@ -236,13 +235,13 @@ shardcached_handle_admin_request(shcd_http_t *http, struct mg_connection *conn, 
 }
 
 static void
-shardcached_handle_get_request(shcd_http_t *http, struct mg_connection *conn, char *key, int is_head)
+shardcached_handle_get_request(http_worker_t *wrk, struct mg_connection *conn, char *key, int is_head)
 {
-    if (http->acl) {
+    if (wrk->acl) {
         shcd_acl_method_t method = SHCD_ACL_METHOD_GET;
         struct in_addr remote_addr;
         inet_aton(conn->remote_ip, &remote_addr);
-        if (shcd_acl_eval(http->acl, method, key, remote_addr.s_addr) != SHCD_ACL_ACTION_ALLOW) {
+        if (shcd_acl_eval(wrk->acl, method, key, remote_addr.s_addr) != SHCD_ACL_ACTION_ALLOW) {
             mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
             return;
         }
@@ -252,9 +251,9 @@ shardcached_handle_get_request(shcd_http_t *http, struct mg_connection *conn, ch
     struct timeval ts = { 0, 0 };
     void *value = NULL;
     if (is_head) {
-        vlen = shardcache_head(http->cache, key, strlen(key), NULL, 0, &ts);
+        vlen = shardcache_head(wrk->cache, key, strlen(key), NULL, 0, &ts);
     } else {
-        value = shardcache_get(http->cache, key, strlen(key), &vlen, &ts);
+        value = shardcache_get(wrk->cache, key, strlen(key), &vlen, &ts);
     }
 
     if (vlen) {
@@ -288,13 +287,13 @@ shardcached_handle_get_request(shcd_http_t *http, struct mg_connection *conn, ch
         }
 
         char *mtype = "application/octet-stream";
-        if (http->mime_types) {
+        if (wrk->mime_types) {
             char *p = key;
             while (*p && *p != '.')
                 p++;
             if (*p && *(p+1)) {
                 p++;
-                char *mt = (char *)ht_get(http->mime_types, p, strlen(p), NULL);
+                char *mt = (char *)ht_get(wrk->mime_types, p, strlen(p), NULL);
                 if (mt)
                     mtype = mt;
             }
@@ -315,19 +314,19 @@ shardcached_handle_get_request(shcd_http_t *http, struct mg_connection *conn, ch
 }
 
 static void
-shardcached_handle_delete_request(shcd_http_t *http, struct mg_connection *conn, char *key)
+shardcached_handle_delete_request(http_worker_t *wrk, struct mg_connection *conn, char *key)
 {
-    if (http->acl) {
+    if (wrk->acl) {
         shcd_acl_method_t method = SHCD_ACL_METHOD_DEL;
         struct in_addr remote_addr;
         inet_aton(conn->remote_ip, &remote_addr);
-        if (shcd_acl_eval(http->acl, method, key, remote_addr.s_addr) != SHCD_ACL_ACTION_ALLOW) {
+        if (shcd_acl_eval(wrk->acl, method, key, remote_addr.s_addr) != SHCD_ACL_ACTION_ALLOW) {
             mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
             return;
         }
     }
 
-    int rc = shardcache_del(http->cache, key, strlen(key));
+    int rc = shardcache_del(wrk->cache, key, strlen(key));
     mg_printf(conn, "HTTP/1.0 %s\r\n"
                     "Content-Length: 0\r\n\r\n",
                      rc == 0 ? "200 OK" : "500 ERR");
@@ -335,13 +334,13 @@ shardcached_handle_delete_request(shcd_http_t *http, struct mg_connection *conn,
 }
 
 static void
-shardcached_handle_put_request(shcd_http_t *http, struct mg_connection *conn, char *key)
+shardcached_handle_put_request(http_worker_t *wrk, struct mg_connection *conn, char *key)
 {
-    if (http->acl) {
+    if (wrk->acl) {
         shcd_acl_method_t method = SHCD_ACL_METHOD_PUT;
         struct in_addr remote_addr;
         inet_aton(conn->remote_ip, &remote_addr);
-        if (shcd_acl_eval(http->acl, method, key, remote_addr.s_addr) != SHCD_ACL_ACTION_ALLOW) {
+        if (shcd_acl_eval(wrk->acl, method, key, remote_addr.s_addr) != SHCD_ACL_ACTION_ALLOW) {
             mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
             return;
         }
@@ -358,7 +357,7 @@ shardcached_handle_put_request(shcd_http_t *http, struct mg_connection *conn, ch
         return;
     }
 
-    shardcache_set(http->cache, key, strlen(key), conn->content, conn->content_len);
+    shardcache_set(wrk->cache, key, strlen(key), conn->content, conn->content_len);
 
     mg_printf(conn, "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n");
 }
@@ -366,13 +365,14 @@ shardcached_handle_put_request(shcd_http_t *http, struct mg_connection *conn, ch
 static int
 shardcached_request_handler(struct mg_connection *conn)
 {
-    shcd_http_t *http = conn->server_param;
+    http_worker_t *wrk = conn->server_param;
+    
     char *key = (char *)conn->uri;
     int basepath_found = 0;
 
-    int basepath_len = strlen(http->basepath);
-    int baseadminpath_len = strlen(http->adminpath);
-    int basepaths_differ = (basepath_len != baseadminpath_len || strcmp(http->basepath, http->adminpath) != 0);
+    int basepath_len = strlen(wrk->basepath);
+    int baseadminpath_len = strlen(wrk->adminpath);
+    int basepaths_differ = (basepath_len != baseadminpath_len || strcmp(wrk->basepath, wrk->adminpath) != 0);
 
     __sync_add_and_fetch(&shcd_active_requests, 1);
 
@@ -380,7 +380,7 @@ shardcached_request_handler(struct mg_connection *conn)
         key++;
 
     if (basepath_len) {
-        if (strncmp(key, http->basepath, basepath_len) == 0) {
+        if (strncmp(key, wrk->basepath, basepath_len) == 0) {
             key += basepath_len + 1;
             basepath_found = 1;
             while (*key == '/' && *key)
@@ -402,7 +402,7 @@ shardcached_request_handler(struct mg_connection *conn)
     }
 
     if (baseadminpath_len && basepaths_differ) {
-        if (!basepath_found && strncmp(key, http->adminpath, baseadminpath_len) == 0) {
+        if (!basepath_found && strncmp(key, wrk->adminpath, baseadminpath_len) == 0) {
             key += baseadminpath_len + 1;
 
             while (*key == '/' && *key)
@@ -414,7 +414,7 @@ shardcached_request_handler(struct mg_connection *conn)
             }
 
             if (strncasecmp(conn->request_method, "GET", 3) == 0)
-                shardcached_handle_admin_request(http, conn, key, 0);
+                shardcached_handle_admin_request(wrk, conn, key, 0);
             else
                 mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length 9\r\n\r\nForbidden");
             __sync_sub_and_fetch(&shcd_active_requests, 1);
@@ -430,7 +430,7 @@ shardcached_request_handler(struct mg_connection *conn)
         (strcmp(key, "__stats__") == 0 || strcmp(key, "__index__") == 0 || strcmp(key, "__health__") == 0))
     {
         if (strncasecmp(conn->request_method, "GET", 3) == 0)
-            shardcached_handle_admin_request(http, conn, key, 0);
+            shardcached_handle_admin_request(wrk, conn, key, 0);
         else
             mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length 9\r\n\r\nForbidden");
         __sync_sub_and_fetch(&shcd_active_requests, 1);
@@ -438,15 +438,16 @@ shardcached_request_handler(struct mg_connection *conn)
 
     }
 
+    // XXX
     // handle the actual GET/PUT/DELETE request
     if (strncasecmp(conn->request_method, "GET", 3) == 0)
-        shardcached_handle_get_request(http, conn, key, 0);
+        shardcached_handle_get_request(wrk, conn, key, 0);
     else if (strncasecmp(conn->request_method, "HEAD", 4) == 0)
-        shardcached_handle_get_request(http, conn, key, 1);
+        shardcached_handle_get_request(wrk, conn, key, 1);
     else if (strncasecmp(conn->request_method, "DELETE", 6) == 0)
-        shardcached_handle_delete_request(http, conn, key);
+        shardcached_handle_delete_request(wrk, conn, key);
     else if (strncasecmp(conn->request_method, "PUT", 3) == 0)
-        shardcached_handle_put_request(http, conn, key);
+        shardcached_handle_put_request(wrk, conn, key);
     else
         mg_printf(conn, "HTTP/1.0 405 Method Not Allowed\r\nContent-Length: 11\r\n\r\nNot Allowed");
 
@@ -456,45 +457,12 @@ shardcached_request_handler(struct mg_connection *conn)
 }
 
 
-
-static void *
-shcd_http_worker(void *priv)
-{
-   return NULL; 
-}
-
-static http_worker_t *
-shcd_http_worker_create()
-{
-    http_worker_t *worker = calloc(1, sizeof(http_worker_t));
-    worker->jobs = queue_create();
-    if (pthread_create(&worker->th, NULL, shcd_http_worker, worker->jobs) != 0) {
-        queue_destroy(worker->jobs);
-        free(worker);
-        return NULL;
-    }
-    return worker;
-}
-
-static void
-shcd_http_stop_workers(shcd_http_t *http)
-{
-    http_worker_t *worker, *tmp;
-    TAILQ_FOREACH_SAFE(worker, &http->workers, next, tmp) {
-        TAILQ_REMOVE(&http->workers, worker, next);
-        pthread_cancel(worker->th);
-        pthread_join(worker->th, NULL);
-        queue_destroy(worker->jobs);
-        free(worker);
-    }
-}
-
 void *
 shcd_http_run(void *priv)
 {
-    shcd_http_t *http = (shcd_http_t *)priv;
-    while (!__sync_fetch_and_add(&http->leave, 0)) {
-        mg_poll_server(http->server, 1000);
+    http_worker_t *wrk = (http_worker_t *)priv;
+    while (!__sync_fetch_and_add(&wrk->leave, 0)) {
+        mg_poll_server(wrk->server, 1000);
     }
     return NULL;
 }
@@ -509,61 +477,75 @@ shcd_http_create(shardcache_t *cache,
                  const char **options,
                  int num_workers)
 {
-    int i;
+    int i, n;
     if (num_workers < 0)
         return NULL;
 
     shcd_http_t *http = calloc(1, sizeof(shcd_http_t));
-    http->cache = cache;
-    http->me = me;
-    http->basepath = basepath;
-    http->adminpath = adminpath;
+
     http->num_workers = num_workers;
-    http->acl = acl;
-    http->mime_types = mime_types;
-
-    http->server = mg_create_server(http);
-    if (!http->server) {
-        SHC_ERROR("Can't start mongoose server");
-        free(http);
-        return NULL;
-    }
-
-    for (i = 0; options[i]; i += 2) {
-        const char *msg = mg_set_option(http->server, options[i], options[i+1]);
-        if (msg != NULL) {
-            SHC_ERROR("Failed to set mongoose option [%s]: %s",
-                       options[i], msg);
-            mg_destroy_server(&http->server);
-            free(http);
-            return NULL;
-        }
-    }
-
-    mg_add_uri_handler(http->server, "/",  shardcached_request_handler);
 
     TAILQ_INIT(&http->workers);
     for (i = 0; i < num_workers; i++) {
-        http_worker_t *worker = shcd_http_worker_create();
-        TAILQ_INSERT_TAIL(&http->workers, worker, next);
+
+        http_worker_t *wrk = calloc(1, sizeof(http_worker_t));
+
+        wrk->server = mg_create_server(wrk);
+        if (!wrk->server) {
+            SHC_ERROR("Can't start mongoose server");
+            shcd_http_destroy(http);
+            return NULL;
+        }
+
+        wrk->cache = cache;
+        wrk->me = me;
+        wrk->basepath = basepath;
+        wrk->adminpath = adminpath;
+        wrk->acl = acl;
+        wrk->mime_types = mime_types;
+
+        for (n = 0; options[n]; n += 2) {
+            const char *option = options[n];
+            const char *value = options[n+1];
+            if (!option || !value) {
+                SHC_ERROR("Bad mongoose options");
+                shcd_http_destroy(http);
+                return NULL;
+
+            }
+            if (strcmp(option, "listening_port") == 0 && i > 0) {
+                mg_set_listening_socket(wrk->server, mg_get_listening_socket(TAILQ_FIRST(&http->workers)->server));
+            } else {
+                const char *msg = mg_set_option(wrk->server, option, value);
+                if (msg != NULL) {
+                    SHC_ERROR("Failed to set mongoose option [%s=%s]: %s",
+                               option, value, msg);
+                    shcd_http_destroy(http);
+                    return NULL;
+                }
+            }
+        }
+
+        mg_add_uri_handler(wrk->server, "/",  shardcached_request_handler);
+
+        TAILQ_INSERT_TAIL(&http->workers, wrk, next);
+        wrk->th = (pthread_t)mg_start_thread(shcd_http_run, wrk);
     }
 
-    if (pthread_create(&http->ioth, NULL, shcd_http_run, http) != 0) {
-        SHC_ERROR("Can't create the http i/o thread: %s", strerror(errno));
-        shcd_http_stop_workers(http);
-        mg_destroy_server(&http->server);
-        free(http);
-        return NULL;
-    }
     return http;
 };
 
 void
 shcd_http_destroy(shcd_http_t *http)
 {
-    __sync_add_and_fetch(&http->leave, 1);
-    pthread_join(http->ioth, NULL);
-    shcd_http_stop_workers(http);
-    mg_destroy_server(&http->server);
+    http_worker_t *worker, *tmp;
+    TAILQ_FOREACH_SAFE(worker, &http->workers, next, tmp) {
+        TAILQ_REMOVE(&http->workers, worker, next);
+        __sync_add_and_fetch(&worker->leave, 1);
+        //pthread_cancel(worker->th);
+        pthread_join(worker->th, NULL);
+        mg_destroy_server(&worker->server);
+        free(worker);
+    }
     free(http);
 }
