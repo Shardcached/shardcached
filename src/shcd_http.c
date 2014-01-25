@@ -534,9 +534,13 @@ shcd_http_create(shardcache_t *cache,
         mg_add_uri_handler(wrk->server, "/",  shardcached_request_handler);
 
         TAILQ_INSERT_TAIL(&http->workers, wrk, next);
-        wrk->th = (pthread_t)mg_start_thread(shcd_http_run, wrk);
+        if (pthread_create(&wrk->th, NULL, shcd_http_run, wrk) != 0) {
+            SHC_ERROR("Failed to start an http worker thread: %s",
+                       strerror(errno));
+            shcd_http_destroy(http);
+            return NULL;
+        }
     }
-
     return http;
 };
 
