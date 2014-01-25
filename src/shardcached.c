@@ -395,11 +395,7 @@ int config_handler(void *user,
     }
     else if (strcmp(section, "shardcached") == 0)
     {
-        if (strcmp(name, "num_http_workers") == 0)
-        {
-            config->num_http_workers = strtol(value, NULL, 10);
-        }
-        else if (strcmp(name, "stats_interval") == 0) {
+        if (strcmp(name, "stats_interval") == 0) {
             config->stats_interval = strtol(value, NULL, 10);
         }
         else if (strcmp(name, "storage_type") == 0)
@@ -529,7 +525,10 @@ int config_handler(void *user,
     }
     else if (strcmp(section, "http") == 0)
     {
-        if (strcmp(name, "access_log") == 0)
+        if (strcmp(name, "num_workers") == 0)
+        {
+            config->num_http_workers = strtol(value, NULL, 10);
+        } else if (strcmp(name, "access_log") == 0)
         {
             snprintf(config->access_log_file, sizeof(config->access_log_file),
                     "%s", value);
