@@ -331,7 +331,7 @@ int config_acl(char *pattern, char *aclstr)
             return -1;
         }
     }
-    return shcd_acl_add(http_acl, pattern, action, method, ntohl(ip.s_addr), mask);
+    return shcd_acl_add(http_acl, pattern, action, method, ip.s_addr, mask);
 }
 
 static int config_listening_address(char *addr_string, shardcached_config_t *config)

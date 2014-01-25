@@ -91,7 +91,7 @@ shcd_acl_action_t shcd_acl_eval(shcd_acl_t *acl,
     }
 
     struct in_addr iaddr;
-    iaddr.s_addr = htonl(ipaddr);
+    iaddr.s_addr = ipaddr;
     SHC_DEBUG2("ACL result for action : %02x, key: %s, from %s == %s",
             method, path, inet_ntoa(iaddr),
             (res == SHCD_ACL_ACTION_ALLOW) ? "ALLOW" : "DENY");
