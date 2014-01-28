@@ -51,7 +51,9 @@
 #include <io.h>         // For _lseeki64
 #include <direct.h>     // For _mkdir
 typedef int socklen_t;
+#ifndef pid_t
 typedef HANDLE pid_t;
+#endif
 typedef SOCKET sock_t;
 typedef unsigned char uint8_t;
 typedef unsigned int uint32_t;
@@ -75,7 +77,9 @@ typedef struct _stati64 file_stat_t;
 #define mutex_lock(x) EnterCriticalSection(x)
 #define mutex_unlock(x) LeaveCriticalSection(x)
 #define get_thread_id() ((unsigned long) GetCurrentThreadId())
+#ifndef S_ISDIR
 #define S_ISDIR(x) ((x) & _S_IFDIR)
+#endif
 #define sleep(x) Sleep((x) * 1000)
 #define stat(x, y) mg_stat((x), (y))
 #define fopen(x, y) mg_fopen((x), (y))
@@ -273,7 +277,9 @@ struct mg_server {
   struct ll active_connections;
   struct ll uri_handlers;
   mg_handler_t error_handler;
+  mg_handler_t auth_handler;
   char *config_options[NUM_OPTIONS];
+  char local_ip[48];
   void *server_data;
 #ifdef MONGOOSE_USE_SSL
   SSL_CTX *ssl_ctx;            // Server SSL context
@@ -1220,6 +1226,7 @@ static void forward_post_data(struct connection *conn) {
 
 // 'sa' must be an initialized address to bind to
 static sock_t open_listening_socket(union socket_address *sa) {
+  socklen_t len = sizeof(*sa);
   sock_t on = 1, sock = INVALID_SOCKET;
 
   if ((sock = socket(sa->sa.sa_family, SOCK_STREAM, 6)) != INVALID_SOCKET &&
@@ -1228,6 +1235,8 @@ static sock_t open_listening_socket(union socket_address *sa) {
             sizeof(sa->sin) : sizeof(sa->sa)) &&
       !listen(sock, SOMAXCONN)) {
     set_non_blocking_mode(sock);
+    // In case port was set to 0, get the real port number
+    (void) getsockname(sock, &sa->sa, &len);
   } else if (sock != INVALID_SOCKET) {
     closesocket(sock);
     sock = INVALID_SOCKET;
@@ -1335,6 +1344,8 @@ static struct connection *accept_new_connection(struct mg_server *server) {
                        sizeof(conn->mg_conn.remote_ip), &sa);
     conn->mg_conn.remote_port = ntohs(sa.sin.sin_port);
     conn->mg_conn.server_param = server->server_data;
+    conn->mg_conn.local_ip = server->local_ip;
+    conn->mg_conn.local_port = ntohs(server->lsa.sin.sin_port);
     LINKED_LIST_ADD_TO_FRONT(&server->active_connections, &conn->link);
     DBG(("added conn %p", conn));
   }
@@ -1542,10 +1553,10 @@ static int must_hide_file(struct connection *conn, const char *path) {
 static int convert_uri_to_file_name(struct connection *conn, char *buf,
                                     size_t buf_len, file_stat_t *st) {
   struct vec a, b;
-  const char *rewrites = conn->server->config_options[URL_REWRITES],
-        *root = conn->server->config_options[DOCUMENT_ROOT],
-        *cgi_pat = conn->server->config_options[CGI_PATTERN],
-        *uri = conn->mg_conn.uri;
+  const char *rewrites = conn->server->config_options[URL_REWRITES];
+  const char *root = conn->server->config_options[DOCUMENT_ROOT];
+  const char *cgi_pat = conn->server->config_options[CGI_PATTERN];
+  const char *uri = conn->mg_conn.uri;
   char *p;
   int match_len;
 
@@ -2609,7 +2620,7 @@ static int remove_directory(const char *dir) {
 static void handle_delete(struct connection *conn, const char *path) {
   file_stat_t st;
 
-  if (!stat(path, &st)) {
+  if (stat(path, &st) != 0) {
     send_http_error(conn, 404, NULL);
   } else if (S_ISDIR(st.st_mode)) {
     remove_directory(path);
@@ -3365,6 +3376,15 @@ static void open_local_endpoint(struct connection *conn) {
   const char *dir_lst = conn->server->config_options[ENABLE_DIRECTORY_LISTING];
 #endif
 
+#ifndef MONGOOSE_NO_AUTH
+  // Call auth handler
+  if (conn->server->auth_handler != NULL &&
+      conn->server->auth_handler(&conn->mg_conn) == 0) {
+    mg_send_digest_auth_request(&conn->mg_conn);
+    return;
+  }
+#endif
+
   // Call URI handler if one is registered for this URI
   conn->endpoint.uh = find_uri_handler(conn->server, conn->mg_conn.uri);
   if (conn->endpoint.uh != NULL) {
@@ -3632,6 +3652,7 @@ int mg_connect(struct mg_server *server, const char *host, int port,
     return 0;
   }
 
+  conn->server = server;
   conn->client_sock = sock;
   conn->endpoint_type = EP_CLIENT;
   conn->handler = handler;
@@ -3691,6 +3712,7 @@ static void log_access(const struct connection *conn, const char *path) {
 #endif
 
 static void close_local_endpoint(struct connection *conn) {
+  struct mg_connection *c = &conn->mg_conn;
   // Must be done before free()
   int keep_alive = conn->request && should_keep_alive(&conn->mg_conn) &&
     (conn->endpoint_type == EP_FILE || conn->endpoint_type == EP_USER);
@@ -3704,8 +3726,8 @@ static void close_local_endpoint(struct connection *conn) {
   }
 
 #ifndef MONGOOSE_NO_LOGGING
-  if (conn->mg_conn.status_code > 0 && conn->endpoint_type != EP_CLIENT &&
-      conn->mg_conn.status_code != 400) {
+  if (c->status_code > 0 && conn->endpoint_type != EP_CLIENT &&
+      c->status_code != 400) {
     log_access(conn, conn->server->config_options[ACCESS_LOG_FILE]);
   }
 #endif
@@ -3713,8 +3735,9 @@ static void close_local_endpoint(struct connection *conn) {
   // Gobble possible POST data sent to the URI handler
   discard_leading_iobuf_bytes(&conn->local_iobuf, conn->mg_conn.content_len);
   conn->endpoint_type = EP_NONE;
-  conn->flags = conn->mg_conn.status_code = 0;
-  conn->cl = conn->num_bytes_sent = conn->request_len = 0;
+  conn->cl = conn->num_bytes_sent = conn->request_len = conn->flags = 0;
+  c->request_method = c->uri = c->http_version = c->query_string = NULL;
+  c->num_headers = c->status_code = c->is_websocket = c->content_len = 0;
   free(conn->request);
   conn->request = NULL;
 
@@ -4064,7 +4087,7 @@ static int parse_port_string(const char *str, union socket_address *sa) {
     port = 0;   // Parsing failure. Make port invalid.
   }
 
-  return port > 0 && port < 0xffff && str[len] == '\0';
+  return port <= 0xffff && str[len] == '\0';
 }
 
 const char *mg_set_option(struct mg_server *server, const char *name,
@@ -4089,6 +4112,16 @@ const char *mg_set_option(struct mg_server *server, const char *name,
       server->listening_sock = open_listening_socket(&server->lsa);
       if (server->listening_sock == INVALID_SOCKET) {
         error_msg = "Cannot bind to port";
+      } else {
+        sockaddr_to_string(server->local_ip, sizeof(server->local_ip),
+                           &server->lsa);
+        if (!strcmp(value, "0")) {
+          char buf[10];
+          mg_snprintf(buf, sizeof(buf), "%d",
+                      (int) ntohs(server->lsa.sin.sin_port));
+          free(server->config_options[ind]);
+          server->config_options[ind] = mg_strdup(buf);
+        }
       }
 #ifndef _WIN32
     } else if (ind == RUN_AS_USER) {
@@ -4122,6 +4155,10 @@ const char *mg_set_option(struct mg_server *server, const char *name,
 
 void mg_set_http_error_handler(struct mg_server *server, mg_handler_t handler) {
   server->error_handler = handler;
+}
+
+void mg_set_auth_handler(struct mg_server *server, mg_handler_t handler) {
+  server->auth_handler = handler;
 }
 
 void mg_set_listening_socket(struct mg_server *server, int sock) {
