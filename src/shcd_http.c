@@ -531,7 +531,7 @@ shcd_http_create(shardcache_t *cache,
             }
         }
 
-        mg_add_uri_handler(wrk->server, "/",  shardcached_request_handler);
+        mg_set_request_handler(wrk->server, shardcached_request_handler);
 
         TAILQ_INSERT_TAIL(&http->workers, wrk, next);
         if (pthread_create(&wrk->th, NULL, shcd_http_run, wrk) != 0) {
