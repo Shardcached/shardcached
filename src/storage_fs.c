@@ -124,7 +124,6 @@ st_store(void *key, size_t klen, void *value, size_t vlen, void *priv)
     char tmpdir[tmpdir_len];
     char *tmp_intermediate = NULL;
     char *intermediate_dir = NULL;
-    int renamed = 0;
 
     snprintf(tmpdir, tmpdir_len, "%s/%s", storage->tmp, dname);
     char *tmppath = st_fs_filename(tmpdir, key, klen, &tmp_intermediate);
@@ -149,9 +148,7 @@ st_store(void *key, size_t klen, void *value, size_t vlen, void *priv)
                                             klen,
                                             &intermediate_dir);
             ret = rename(tmppath, fullpath);
-            if (ret == 0)
-                renamed = 1;
-            else
+            if (ret != 0)
                 SHC_ERROR("Can't store data on file %s : %s\n",
                            fullpath, strerror(errno));
 
@@ -160,8 +157,9 @@ st_store(void *key, size_t klen, void *value, size_t vlen, void *priv)
         close(fd);
     }
 
-    if (!renamed)
-	    unlink(tmppath);
+    if (ret != 0)
+        unlink(tmppath);
+
     rmdir(tmp_intermediate);
     rmdir(tmpdir);
     free(tmppath);
