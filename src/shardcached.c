@@ -116,7 +116,7 @@ static shardcached_config_t config = {
     .pidfile = SHARDCACHED_PIDFILE_DEFAULT
 };
 
-static void usage(char *progname, char *msg, ...)
+static void usage(char *progname, int rc, char *msg, ...)
 {
     if (msg) {
         va_list arg;
@@ -170,7 +170,7 @@ static void usage(char *progname, char *msg, ...)
            , SHARDCACHED_NUM_WORKERS_DEFAULT
            , SHARDCACHED_NUM_HTTP_WORKERS_DEFAULT);
 
-    exit(-2);
+    exit(rc);
 }
 
 static void shardcached_stop(int sig)
@@ -693,7 +693,7 @@ void parse_cmdline(int argc, char **argv)
                 break;
             case 'l':
                 if (!config_listening_address(optarg, &config)) {
-                    usage(argv[0], "Can't use the listening address : %s\n", optarg);
+                    usage(argv[0], -2, "Can't use the listening address : %s\n", optarg);
                 }
                 break;
             case 'm':
@@ -709,7 +709,7 @@ void parse_cmdline(int argc, char **argv)
                 }
                 config.num_nodes = 0;
                 if (parse_nodes_string(optarg, 0) != 0) {
-                    usage(argv[0], "Bad format : '%s'", optarg);
+                    usage(argv[0], -2, "Bad format : '%s'", optarg);
                 }
                 break;
             case 'N':
@@ -754,15 +754,15 @@ void parse_cmdline(int argc, char **argv)
                 }
                 config.num_migration_nodes = 0;
                 if (parse_nodes_string(optarg, 1) != 0) {
-                    usage(argv[0], "Bad format : '%s'", optarg);
+                    usage(argv[0], -2, "Bad format : '%s'", optarg);
                 }
                 break;
             case 'h':
             case '?':
-                usage(argv[0], NULL);
+                usage(argv[0], 0, NULL);
                 break;
             default:
-                usage(argv[0], "Unknown option : '-%c'", c);
+                usage(argv[0], -3, "Unknown option : '-%c'", c);
                 break;
         }
     }
@@ -789,7 +789,7 @@ int main(int argc, char **argv)
     if (cfgfile) {
         int rc = ini_parse(cfgfile, config_handler, (void *)&config);
         if (rc != 0) {
-            usage(argv[0], "Can't parse configuration file %s (line %d)\n",
+            usage(argv[0], -2, "Can't parse configuration file %s (line %d)\n",
                     cfgfile, rc);
         }
     }
@@ -798,11 +798,11 @@ int main(int argc, char **argv)
     parse_cmdline(argc, argv);
 
     if (!config.num_nodes || !config.nodes) {
-        usage(argv[0], "Configuring 'nodes' is mandatory!");
+        usage(argv[0], -2, "Configuring 'nodes' is mandatory!");
     }
 
     if (!config.me[0]) {
-        usage(argv[0], "Configuring 'me' is mandatory!");
+        usage(argv[0], -2, "Configuring 'me' is mandatory!");
     }
 
     // check if me matches one of the nodes
@@ -827,7 +827,7 @@ int main(int argc, char **argv)
             }
         }
         if (!me_check) // no it's really a misconfiguration
-            usage(argv[0], "'me' MUST match the label of one of the configured nodes");
+            usage(argv[0], -2, "'me' MUST match the label of one of the configured nodes");
     }
  
     // go daemon if we have to
