@@ -243,7 +243,9 @@ shardcached_handle_admin_request(http_worker_t *wrk, struct mg_connection *conn,
 typedef struct {
     http_worker_t *wrk;
     struct mg_connection *conn;
+    char *mtype;
     int req_status;
+    int found;
 } connection_status;
 static int
 shardcache_get_async_callback(void *key,
@@ -256,6 +258,16 @@ shardcache_get_async_callback(void *key,
 {
     connection_status *st = (connection_status *)priv;
     pthread_mutex_lock(&st->wrk->slock);
+
+    if (!dlen && !total_size) {
+        mg_printf(st->conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
+        st->req_status = MG_REQUEST_PROCESSED;
+    }
+        
+    if (!st->found) {
+        mg_printf(st->conn, HTTP_HEADERS_NO_CLEN, st->mtype);
+        st->found = 1;
+    }
 
     if (dlen)
         mg_write(st->conn, data, dlen);
@@ -346,16 +358,18 @@ shardcached_handle_get_request(http_worker_t *wrk, struct mg_connection *conn, c
         }
     } else {
         connection_status *st = malloc(sizeof(connection_status));
+
         st->wrk = wrk;
         st->conn = conn;
+        st->mtype = mtype;
         st->req_status = MG_REQUEST_CALL_AGAIN;
+        st->found = 0;
+
         int rc = shardcache_get_async(wrk->cache, key, strlen(key), shardcache_get_async_callback, st);
         if (rc != 0) {
-            mg_printf(conn, "HTTP/1.0 500 Internal Server Error\r\nContent-Length: 9\r\n\r\nInternal Server Error");
+            mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
             return MG_REQUEST_PROCESSED;
         }
-
-        mg_printf(conn, HTTP_HEADERS_NO_CLEN, mtype);
 
         conn->connection_param = st;
 
