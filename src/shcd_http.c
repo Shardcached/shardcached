@@ -17,10 +17,13 @@
 
 #define HTTP_HEADERS_BASE "HTTP/1.0 200 OK\r\n" \
                           "Content-Type: %s\r\n" \
-                          "Content-Length: %d\r\n" \
                           "Server: shardcached\r\n" \
                           "Connection: Close\r\n"
-#define HTTP_HEADERS HTTP_HEADERS_BASE "\r\n"
+
+#define HTTP_HEADERS_NO_CLEN HTTP_HEADERS_BASE "\r\n"
+
+#define HTTP_HEADERS HTTP_HEADERS_BASE "Content-Length: %d\r\n\r\n"
+
 #define HTTP_HEADERS_WITH_TIME HTTP_HEADERS_BASE "Last-Modified: %s\r\n\r\n"
 
 typedef struct __http_worker_s {
@@ -277,6 +280,22 @@ shardcached_handle_get_request(http_worker_t *wrk, struct mg_connection *conn, c
         }
     }
 
+    char *mtype = NULL;
+    if (wrk->mime_types) {
+        char *p = key;
+        while (*p && *p != '.')
+            p++;
+        if (*p && *(p+1)) {
+            p++;
+            mtype = (char *)ht_get(wrk->mime_types, p, strlen(p), NULL);
+            if (!mtype)
+                mtype = (char *)mg_get_mime_type(key, "application/octet-stream");
+        }
+    } else {
+        mtype = (char *)mg_get_mime_type(key, "application/octet-stream");
+    }
+
+
     size_t vlen = 0;
     struct timeval ts = { 0, 0 };
     void *value = NULL;
@@ -312,21 +331,6 @@ shardcached_handle_get_request(http_worker_t *wrk, struct mg_connection *conn, c
                 }
             }
 
-            char *mtype = NULL;
-            if (wrk->mime_types) {
-                char *p = key;
-                while (*p && *p != '.')
-                    p++;
-                if (*p && *(p+1)) {
-                    p++;
-                    mtype = (char *)ht_get(wrk->mime_types, p, strlen(p), NULL);
-                    if (!mtype)
-                        mtype = (char *)mg_get_mime_type(key, "application/octet-stream");
-                }
-            } else {
-                mtype = (char *)mg_get_mime_type(key, "application/octet-stream");
-            }
-
             char timestamp[256];
             struct tm gmts;
             strftime(timestamp, sizeof(timestamp), "%a, %d %b %Y %T %z", gmtime_r(&ts.tv_sec, &gmts));
@@ -350,30 +354,8 @@ shardcached_handle_get_request(http_worker_t *wrk, struct mg_connection *conn, c
             mg_printf(conn, "HTTP/1.0 500 Internal Server Error\r\nContent-Length: 9\r\n\r\nInternal Server Error");
             return MG_REQUEST_PROCESSED;
         }
-        char *mtype = NULL;
-        if (wrk->mime_types) {
-            char *p = key;
-            while (*p && *p != '.')
-                p++;
-            if (*p && *(p+1)) {
-                p++;
-                mtype = (char *)ht_get(wrk->mime_types, p, strlen(p), NULL);
-                if (!mtype)
-                    mtype = (char *)mg_get_mime_type(key, "application/octet-stream");
-            }
-        } else {
-            mtype = (char *)mg_get_mime_type(key, "application/octet-stream");
-        }
 
-        char timestamp[256];
-        struct tm gmts;
-        strftime(timestamp, sizeof(timestamp), "%a, %d %b %Y %T %z", gmtime_r(&ts.tv_sec, &gmts));
-        char *headers = 
-            "HTTP/1.0 200 OK\r\n" \
-            "Content-Type: %s\r\n" \
-            "Server: shardcached\r\n" \
-            "Connection: Close\r\n\r\n";
-        mg_printf(conn, headers, mtype);
+        mg_printf(conn, HTTP_HEADERS_NO_CLEN, mtype);
 
         conn->connection_param = st;
 
