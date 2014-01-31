@@ -27,6 +27,7 @@ typedef struct __http_worker_s {
     TAILQ_ENTRY(__http_worker_s) next;
     pthread_t th;
     struct mg_server *server;
+    pthread_mutex_t slock;
     const char *me;
     const char *basepath;
     const char *adminpath;
@@ -236,7 +237,34 @@ shardcached_handle_admin_request(http_worker_t *wrk, struct mg_connection *conn,
     }
 }
 
-static void
+typedef struct {
+    http_worker_t *wrk;
+    struct mg_connection *conn;
+    int req_status;
+} connection_status;
+static int
+shardcache_get_async_callback(void *key,
+                              size_t klen,
+                              void *data,
+                              size_t dlen,
+                              size_t total_size,
+                              struct timeval *timestamp,
+                              void *priv)
+{
+    connection_status *st = (connection_status *)priv;
+    pthread_mutex_lock(&st->wrk->slock);
+
+    if (dlen)
+        mg_write(st->conn, data, dlen);
+
+    if (total_size) {
+        st->req_status = MG_REQUEST_PROCESSED;
+    }
+    pthread_mutex_unlock(&st->wrk->slock);
+    return 0;
+}
+
+static int
 shardcached_handle_get_request(http_worker_t *wrk, struct mg_connection *conn, char *key, int is_head)
 {
     if (wrk->acl) {
@@ -245,7 +273,7 @@ shardcached_handle_get_request(http_worker_t *wrk, struct mg_connection *conn, c
         inet_aton(conn->remote_ip, &remote_addr);
         if (shcd_acl_eval(wrk->acl, method, key, remote_addr.s_addr) != SHCD_ACL_ACTION_ALLOW) {
             mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
-            return;
+            return MG_REQUEST_PROCESSED;
         }
     }
 
@@ -254,40 +282,74 @@ shardcached_handle_get_request(http_worker_t *wrk, struct mg_connection *conn, c
     void *value = NULL;
     if (is_head) {
         vlen = shardcache_head(wrk->cache, key, strlen(key), NULL, 0, &ts);
-    } else {
-        value = shardcache_get(wrk->cache, key, strlen(key), &vlen, &ts);
-    }
-
-    if (vlen) {
-        int i;
-        for (i = 0; i < conn->num_headers; i++) {
-            struct tm tm;
-            const char *hdr_name = conn->http_headers[i].name;
-            const char *hdr_value = conn->http_headers[i].value;
-            if (strcasecmp(hdr_name, "If-Modified-Since") == 0) {
-                if (strptime(hdr_value, "%a, %d %b %Y %T %z", &tm) != NULL) {
-                    time_t time = mktime(&tm);
-                    if (ts.tv_sec < time) {
-                        mg_printf(conn, "HTTP/1.0 304 Not Modified\r\nContent-Length: 12\r\n\r\nNot Modified");
-                        if (value)
-                            free(value);
-                        return;
+        if (vlen) {
+            int i;
+            for (i = 0; i < conn->num_headers; i++) {
+                struct tm tm;
+                const char *hdr_name = conn->http_headers[i].name;
+                const char *hdr_value = conn->http_headers[i].value;
+                if (strcasecmp(hdr_name, "If-Modified-Since") == 0) {
+                    if (strptime(hdr_value, "%a, %d %b %Y %T %z", &tm) != NULL) {
+                        time_t time = mktime(&tm);
+                        if (ts.tv_sec < time) {
+                            mg_printf(conn, "HTTP/1.0 304 Not Modified\r\nContent-Length: 12\r\n\r\nNot Modified");
+                            if (value)
+                                free(value);
+                            return MG_REQUEST_PROCESSED;
+                        }
                     }
-                }
-            } else if (strcasecmp(hdr_name, "If-Unmodified-Since") == 0) {
-                if (strptime(hdr_value, "%a, %d %b %Y %T %z", &tm) != NULL) {
-                    time_t time = mktime(&tm);
-                    if (ts.tv_sec > time) {
-                        mg_printf(conn, "HTTP/1.0 412 Precondition Failed\r\nContent-Length: 19\r\n\r\nPrecondition Failed");
-                        if (value)
-                            free(value);
-                        return;
-                    }
+                } else if (strcasecmp(hdr_name, "If-Unmodified-Since") == 0) {
+                    if (strptime(hdr_value, "%a, %d %b %Y %T %z", &tm) != NULL) {
+                        time_t time = mktime(&tm);
+                        if (ts.tv_sec > time) {
+                            mg_printf(conn, "HTTP/1.0 412 Precondition Failed\r\nContent-Length: 19\r\n\r\nPrecondition Failed");
+                            if (value)
+                                free(value);
+                            return MG_REQUEST_PROCESSED;
+                        }
 
+                    }
                 }
             }
-        }
 
+            char *mtype = NULL;
+            if (wrk->mime_types) {
+                char *p = key;
+                while (*p && *p != '.')
+                    p++;
+                if (*p && *(p+1)) {
+                    p++;
+                    mtype = (char *)ht_get(wrk->mime_types, p, strlen(p), NULL);
+                    if (!mtype)
+                        mtype = (char *)mg_get_mime_type(key, "application/octet-stream");
+                }
+            } else {
+                mtype = (char *)mg_get_mime_type(key, "application/octet-stream");
+            }
+
+            char timestamp[256];
+            struct tm gmts;
+            strftime(timestamp, sizeof(timestamp), "%a, %d %b %Y %T %z", gmtime_r(&ts.tv_sec, &gmts));
+            mg_printf(conn, HTTP_HEADERS_WITH_TIME, mtype, (int)vlen, timestamp);
+
+            if (!is_head && value)
+                mg_write(conn, value, vlen);
+
+            if (value)
+                free(value);
+        } else {
+            mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
+        }
+    } else {
+        connection_status *st = malloc(sizeof(connection_status));
+        st->wrk = wrk;
+        st->conn = conn;
+        st->req_status = MG_REQUEST_CALL_AGAIN;
+        int rc = shardcache_get_async(wrk->cache, key, strlen(key), shardcache_get_async_callback, st);
+        if (rc != 0) {
+            mg_printf(conn, "HTTP/1.0 500 Internal Server Error\r\nContent-Length: 9\r\n\r\nInternal Server Error");
+            return MG_REQUEST_PROCESSED;
+        }
         char *mtype = NULL;
         if (wrk->mime_types) {
             char *p = key;
@@ -306,16 +368,19 @@ shardcached_handle_get_request(http_worker_t *wrk, struct mg_connection *conn, c
         char timestamp[256];
         struct tm gmts;
         strftime(timestamp, sizeof(timestamp), "%a, %d %b %Y %T %z", gmtime_r(&ts.tv_sec, &gmts));
-        mg_printf(conn, HTTP_HEADERS_WITH_TIME, mtype, (int)vlen, timestamp);
+        char *headers = 
+            "HTTP/1.0 200 OK\r\n" \
+            "Content-Type: %s\r\n" \
+            "Server: shardcached\r\n" \
+            "Connection: Close\r\n\r\n";
+        mg_printf(conn, headers, mtype);
 
-        if (!is_head && value)
-            mg_write(conn, value, vlen);
+        conn->connection_param = st;
 
-        if (value)
-            free(value);
-    } else {
-        mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
+        return MG_REQUEST_CALL_AGAIN;
     }
+
+    return MG_REQUEST_PROCESSED;
 }
 
 static void
@@ -370,6 +435,16 @@ shardcached_handle_put_request(http_worker_t *wrk, struct mg_connection *conn, c
 static int
 shardcached_request_handler(struct mg_connection *conn)
 {
+    if (conn->connection_param) {
+        connection_status *st = (connection_status *)conn->connection_param;
+        int status = st->req_status;
+        if (status == MG_REQUEST_PROCESSED) {
+            conn->connection_param = NULL;
+            free(st);
+        }
+        return status;
+    }
+
     http_worker_t *wrk = conn->server_param;
     
     char *key = (char *)conn->uri;
@@ -395,7 +470,7 @@ shardcached_request_handler(struct mg_connection *conn)
                 SHC_ERROR("Bad request uri : %s", conn->uri);
                 mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
                 __sync_sub_and_fetch(&shcd_active_requests, 1);
-                return 1;
+                return MG_REQUEST_PROCESSED;
             }
         }
     }
@@ -403,7 +478,7 @@ shardcached_request_handler(struct mg_connection *conn)
     if (*key == 0) {
         mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length 9\r\n\r\nNot Found");
         __sync_sub_and_fetch(&shcd_active_requests, 1);
-        return 1;
+        return MG_REQUEST_PROCESSED;
     }
 
     if (baseadminpath_len && basepaths_differ) {
@@ -415,7 +490,7 @@ shardcached_request_handler(struct mg_connection *conn)
             if (*key == 0) {
                 mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length 9\r\n\r\nNot Found");
                 __sync_sub_and_fetch(&shcd_active_requests, 1);
-                return 1;
+                return MG_REQUEST_PROCESSED;
             }
 
             if (strncasecmp(conn->request_method, "GET", 3) == 0)
@@ -423,7 +498,7 @@ shardcached_request_handler(struct mg_connection *conn)
             else
                 mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length 9\r\n\r\nForbidden");
             __sync_sub_and_fetch(&shcd_active_requests, 1);
-            return 1;
+            return MG_REQUEST_PROCESSED;
         }
     }
 
@@ -439,16 +514,16 @@ shardcached_request_handler(struct mg_connection *conn)
         else
             mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length 9\r\n\r\nForbidden");
         __sync_sub_and_fetch(&shcd_active_requests, 1);
-        return 1;
+        return MG_REQUEST_PROCESSED;
 
     }
 
     // XXX
     // handle the actual GET/PUT/DELETE request
     if (strncasecmp(conn->request_method, "GET", 3) == 0)
-        shardcached_handle_get_request(wrk, conn, key, 0);
+        return shardcached_handle_get_request(wrk, conn, key, 0);
     else if (strncasecmp(conn->request_method, "HEAD", 4) == 0)
-        shardcached_handle_get_request(wrk, conn, key, 1);
+        return shardcached_handle_get_request(wrk, conn, key, 1);
     else if (strncasecmp(conn->request_method, "DELETE", 6) == 0)
         shardcached_handle_delete_request(wrk, conn, key);
     else if (strncasecmp(conn->request_method, "PUT", 3) == 0)
@@ -458,7 +533,7 @@ shardcached_request_handler(struct mg_connection *conn)
 
 
     __sync_sub_and_fetch(&shcd_active_requests, 1);
-    return 1;
+    return MG_REQUEST_PROCESSED;
 }
 
 
@@ -502,6 +577,7 @@ shcd_http_create(shardcache_t *cache,
             return NULL;
         }
 
+        pthread_mutex_init(&wrk->slock, NULL);
         wrk->cache = cache;
         wrk->me = me;
         wrk->basepath = basepath;
@@ -554,6 +630,7 @@ shcd_http_destroy(shcd_http_t *http)
         //pthread_cancel(worker->th);
         pthread_join(worker->th, NULL);
         mg_destroy_server(&worker->server);
+        pthread_mutex_destroy(&worker->slock);
         free(worker);
     }
     free(http);
