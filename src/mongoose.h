@@ -20,7 +20,7 @@
 #ifndef MONGOOSE_HEADER_INCLUDED
 #define  MONGOOSE_HEADER_INCLUDED
 
-#define MONGOOSE_VERSION "5.2"
+#define MONGOOSE_VERSION "5.3"
 
 #include <stdio.h>      // required for FILE
 #include <stddef.h>     // required for size_t
@@ -66,6 +66,7 @@ void mg_destroy_server(struct mg_server **);
 const char *mg_set_option(struct mg_server *, const char *opt, const char *val);
 unsigned int mg_poll_server(struct mg_server *, int milliseconds);
 void mg_set_request_handler(struct mg_server *, mg_handler_t);
+void mg_set_http_close_handler(struct mg_server *, mg_handler_t);
 void mg_set_http_error_handler(struct mg_server *, mg_handler_t);
 void mg_set_auth_handler(struct mg_server *, mg_handler_t);
 const char **mg_get_valid_option_names(void);

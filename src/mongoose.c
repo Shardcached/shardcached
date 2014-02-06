@@ -153,7 +153,8 @@ struct ll { struct ll *prev, *next; };
 #define IOBUF_SIZE 8192
 #define MAX_PATH_SIZE 8192
 #define LUA_SCRIPT_PATTERN "**.lp$"
-#define CGI_ENVIRONMENT_SIZE 4096
+#define DEFAULT_CGI_PATTERN "**.cgi$|**.pl$|**.php$"
+#define CGI_ENVIRONMENT_SIZE 8192
 #define MAX_CGI_ENVIR_VARS 64
 #define ENV_EXPORT_TO_CGI "MONGOOSE_CGI"
 #define PASSWORDS_FILE_NAME ".htpasswd"
@@ -173,6 +174,10 @@ struct ll { struct ll *prev, *next; };
 
 #ifndef MONGOOSE_USE_IDLE_TIMEOUT_SECONDS
 #define MONGOOSE_USE_IDLE_TIMEOUT_SECONDS 30
+#endif
+
+#ifdef MONGOOSE_NO_SOCKETPAIR
+#define MONGOOSE_NO_CGI
 #endif
 
 #ifdef MONGOOSE_ENABLE_DEBUG
@@ -214,11 +219,24 @@ struct dir_entry {
 enum {
   ACCESS_CONTROL_LIST,
 #ifndef MONGOOSE_NO_FILESYSTEM
-  ACCESS_LOG_FILE, AUTH_DOMAIN, CGI_INTERPRETER,
-  CGI_PATTERN, DAV_AUTH_FILE, DOCUMENT_ROOT, ENABLE_DIRECTORY_LISTING,
+  ACCESS_LOG_FILE,
+#ifndef MONGOOSE_NO_AUTH
+  AUTH_DOMAIN,
+#endif
+#ifndef MONGOOSE_NO_CGI
+  CGI_INTERPRETER,
+  CGI_PATTERN,
+#endif
+#ifndef MONGOOSE_NO_DAV
+  DAV_AUTH_FILE,
+#endif
+  DOCUMENT_ROOT,
+#ifndef MONGOOSE_NO_DIRECTORY_LISTING
+  ENABLE_DIRECTORY_LISTING,
+#endif
 #endif
   EXTRA_MIME_TYPES,
-#ifndef MONGOOSE_NO_FILESYSTEM
+#if !defined(MONGOOSE_NO_FILESYSTEM) && !defined(MONGOOSE_NO_AUTH)
   GLOBAL_AUTH_FILE,
 #endif
   HIDE_FILES_PATTERN,
@@ -232,22 +250,31 @@ enum {
 #ifdef MONGOOSE_USE_SSL
   SSL_CERTIFICATE,
 #endif
-  URL_REWRITES, NUM_OPTIONS
+  URL_REWRITES,
+  NUM_OPTIONS
 };
 
 static const char *static_config_options[] = {
   "access_control_list", NULL,
 #ifndef MONGOOSE_NO_FILESYSTEM
   "access_log_file", NULL,
+#ifndef MONGOOSE_NO_AUTH
   "auth_domain", "mydomain.com",
+#endif
+#ifndef MONGOOSE_NO_CGI
   "cgi_interpreter", NULL,
-  "cgi_pattern", "**.cgi$|**.pl$|**.php$",
+  "cgi_pattern", DEFAULT_CGI_PATTERN,
+#endif
+#ifndef MONGOOSE_NO_DAV
   "dav_auth_file", NULL,
+#endif
   "document_root",  NULL,
+#ifndef MONGOOSE_NO_DIRECTORY_LISTING
   "enable_directory_listing", "yes",
 #endif
+#endif
   "extra_mime_types", NULL,
-#ifndef MONGOOSE_NO_FILESYSTEM
+#if !defined(MONGOOSE_NO_FILESYSTEM) && !defined(MONGOOSE_NO_AUTH)
   "global_auth_file", NULL,
 #endif
   "hide_files_patterns", NULL,
@@ -270,6 +297,7 @@ struct mg_server {
   union socket_address lsa;   // Listening socket address
   struct ll active_connections;
   mg_handler_t request_handler;
+  mg_handler_t http_close_handler;
   mg_handler_t error_handler;
   mg_handler_t auth_handler;
   char *config_options[NUM_OPTIONS];
@@ -279,7 +307,9 @@ struct mg_server {
   SSL_CTX *ssl_ctx;            // Server SSL context
   SSL_CTX *client_ssl_ctx;     // Client SSL context
 #endif
+#ifndef MONGOOSE_NO_SOCKETPAIR
   sock_t ctl[2];    // Control socketpair. Used to wake up from select() call
+#endif
 };
 
 // Expandable IO buffer
@@ -702,21 +732,32 @@ static int alloc_vprintf(char **buf, size_t size, const char *fmt, va_list ap) {
   va_list ap_copy;
   int len;
 
-  // Windows is not standard-compliant, and vsnprintf() returns -1 if
-  // buffer is too small. Also, older versions of msvcrt.dll do not have
-  // _vscprintf().  However, if size is 0, vsnprintf() behaves correctly.
-  // Therefore, we make two passes: on first pass, get required message length.
-  // On second pass, actually print the message.
   va_copy(ap_copy, ap);
-  len = vsnprintf(NULL, 0, fmt, ap_copy);
+  len = vsnprintf(*buf, size, fmt, ap_copy);
+  va_end(ap_copy);
 
-  if (len > (int) size &&
-      (size = len + 1) > 0 &&
-      (*buf = (char *) malloc(size)) == NULL) {
-    len = -1;  // Allocation failed, mark failure
-  } else {
-    va_copy(ap_copy, ap);
-    vsnprintf(*buf, size, fmt, ap_copy);
+  if (len < 0) {
+    // eCos and Windows are not standard-compliant and return -1 when
+    // the buffer is too small. Keep allocating larger buffers until we
+    // succeed or out of memory.
+    *buf = NULL;
+    while (len < 0) {
+      if (*buf) free(*buf);
+      size *= 2;
+      if ((*buf = (char *) malloc(size)) == NULL) break;
+      va_copy(ap_copy, ap);
+      len = vsnprintf(*buf, size, fmt, ap_copy);
+      va_end(ap_copy);
+    }
+  } else if (len > (int) size) {
+    // Standard-compliant code path. Allocate a buffer that is large enough.
+    if ((*buf = (char *) malloc(len + 1)) == NULL) {
+      len = -1;
+    } else {
+      va_copy(ap_copy, ap);
+      len = vsnprintf(*buf, len + 1, fmt, ap_copy);
+      va_end(ap_copy);
+    }
   }
 
   return len;
@@ -758,6 +799,7 @@ int mg_printf(struct mg_connection *conn, const char *fmt, ...) {
   return len;
 }
 
+#ifndef MONGOOSE_NO_SOCKETPAIR
 static int mg_socketpair(sock_t sp[2]) {
   struct sockaddr_in sa;
   sock_t sock, ret = -1;
@@ -789,6 +831,7 @@ static int mg_socketpair(sock_t sp[2]) {
 
   return ret;
 }
+#endif
 
 static int is_error(int n) {
   return n == 0 ||
@@ -1048,7 +1091,11 @@ static void prepare_cgi_environment(struct connection *conn,
   blk->len = blk->nvars = 0;
   blk->conn = ri;
 
-  addenv(blk, "SERVER_NAME=%s", opts[AUTH_DOMAIN]);
+  if ((s = getenv("SERVER_NAME")) != NULL) {
+    addenv(blk, "SERVER_NAME=%s", s);
+  } else {
+    addenv(blk, "SERVER_NAME=%s", conn->server->local_ip);
+  }
   addenv(blk, "SERVER_ROOT=%s", opts[DOCUMENT_ROOT]);
   addenv(blk, "DOCUMENT_ROOT=%s", opts[DOCUMENT_ROOT]);
   addenv(blk, "SERVER_SOFTWARE=%s/%s", "Mongoose", MONGOOSE_VERSION);
@@ -1099,6 +1146,9 @@ static void prepare_cgi_environment(struct connection *conn,
     addenv(blk, "CONTENT_LENGTH=%s", s);
 
   addenv2(blk, "PATH");
+  addenv2(blk, "TMP");
+  addenv2(blk, "TEMP");
+  addenv2(blk, "TMPDIR");
   addenv2(blk, "PERLLIB");
   addenv2(blk, ENV_EXPORT_TO_CGI);
 
@@ -1138,16 +1188,17 @@ static const char cgi_status[] = "HTTP/1.1 200 OK\r\n";
 
 static void open_cgi_endpoint(struct connection *conn, const char *prog) {
   struct cgi_env_block blk;
-  char dir[MAX_PATH_SIZE];
+  char dir[MAX_PATH_SIZE], *p;
   sock_t fds[2];
 
   prepare_cgi_environment(conn, prog, &blk);
   // CGI must be executed in its own directory. 'dir' must point to the
   // directory containing executable program, 'p' must point to the
   // executable program name relative to 'dir'.
-  mg_snprintf(dir, sizeof(dir), "%s", prog);
-  if (strrchr(dir, '/') == NULL) {
+  if ((p = strrchr(prog, '/')) == NULL) {
     mg_snprintf(dir, sizeof(dir), "%s", ".");
+  } else {
+    mg_snprintf(dir, sizeof(dir), "%.*s", (int) (p - prog), prog);
   }
 
   // Try to create socketpair in a loop until success. mg_socketpair()
@@ -1348,6 +1399,10 @@ static void close_conn(struct connection *conn) {
   LINKED_LIST_REMOVE(&conn->link);
   closesocket(conn->client_sock);
   close_local_endpoint(conn);
+
+  if (conn->server->http_close_handler)
+    conn->server->http_close_handler(&conn->mg_conn);
+
   DBG(("%p %d %d", conn, conn->flags, conn->endpoint_type));
   free(conn->request);            // It's OK to free(NULL), ditto below
   free(conn->path_info);
@@ -1544,9 +1599,11 @@ static int convert_uri_to_file_name(struct connection *conn, char *buf,
   struct vec a, b;
   const char *rewrites = conn->server->config_options[URL_REWRITES];
   const char *root = conn->server->config_options[DOCUMENT_ROOT];
+#ifndef MONGOOSE_NO_CGI
   const char *cgi_pat = conn->server->config_options[CGI_PATTERN];
-  const char *uri = conn->mg_conn.uri;
   char *p;
+#endif
+  const char *uri = conn->mg_conn.uri;
   int match_len;
 
   // No filesystem access
@@ -1637,7 +1694,7 @@ void mg_printf_data(struct mg_connection *c, const char *fmt, ...) {
   va_end(ap);
 }
 
-#if !defined(NO_WEBSOCKET) || !defined(MONGOOSE_NO_AUTH)
+#if !defined(MONGOOSE_NO_WEBSOCKET) || !defined(MONGOOSE_NO_AUTH)
 static int is_big_endian(void) {
   static const int n = 1;
   return ((char *) &n)[0] == 0;
@@ -3081,7 +3138,8 @@ int mg_parse_header(const char *s, const char *var_name, char *buf,
 }
 
 #ifdef MONGOOSE_USE_LUA
-#include "lua_5.2.1.h"
+#include <lua.h>
+#include <lauxlib.h>
 
 #ifdef _WIN32
 static void *mmap(void *addr, int64_t len, int prot, int flags, int fd,
@@ -3356,8 +3414,16 @@ static void open_local_endpoint(struct connection *conn, int skip_user) {
   file_stat_t st;
   char path[MAX_PATH_SIZE];
   int exists = 0, is_directory = 0;
+#ifndef MONGOOSE_NO_CGI
   const char *cgi_pat = conn->server->config_options[CGI_PATTERN];
+#else
+  const char *cgi_pat = DEFAULT_CGI_PATTERN;
+#endif
+#ifndef MONGOOSE_NO_DIRECTORY_LISTING
   const char *dir_lst = conn->server->config_options[ENABLE_DIRECTORY_LISTING];
+#else
+  const char *dir_lst = "yes";
+#endif
 #endif
 
 #ifndef MONGOOSE_NO_AUTH
@@ -3746,19 +3812,6 @@ static void transfer_file_data(struct connection *conn) {
   }
 }
 
-static void execute_iteration(struct mg_server *server) {
-  struct ll *lp, *tmp;
-  struct connection *conn;
-  union { mg_handler_t f; void *p; } msg[2];
-
-  recv(server->ctl[1], (void *) msg, sizeof(msg), 0);
-  LINKED_LIST_FOREACH(&server->active_connections, lp, tmp) {
-    conn = LINKED_LIST_ENTRY(lp, struct connection, link);
-    conn->mg_conn.connection_param = msg[1].p;
-    msg[0].f(&conn->mg_conn);
-  }
-}
-
 void add_to_set(sock_t sock, fd_set *set, sock_t *max_fd) {
   FD_SET(sock, set);
   if (sock > *max_fd) {
@@ -3780,7 +3833,9 @@ unsigned int mg_poll_server(struct mg_server *server, int milliseconds) {
   FD_ZERO(&read_set);
   FD_ZERO(&write_set);
   add_to_set(server->listening_sock, &read_set, &max_fd);
+#ifndef MONGOOSE_NO_SOCKETPAIR
   add_to_set(server->ctl[1], &read_set, &max_fd);
+#endif
 
   LINKED_LIST_FOREACH(&server->active_connections, lp, tmp) {
     conn = LINKED_LIST_ENTRY(lp, struct connection, link);
@@ -3804,13 +3859,12 @@ unsigned int mg_poll_server(struct mg_server *server, int milliseconds) {
   tv.tv_usec = (milliseconds % 1000) * 1000;
 
   if (select(max_fd + 1, &read_set, &write_set, NULL, &tv) > 0) {
-    if (FD_ISSET(server->ctl[1], &read_set)) {
-      execute_iteration(server);
-    }
-
     // Accept new connections
     if (FD_ISSET(server->listening_sock, &read_set)) {
-      while ((conn = accept_new_connection(server)) != NULL) {
+      // We're not looping here, and accepting just one connection at
+      // a time. The reason is that eCos does not respect non-blocking
+      // flag on a listening socket and hangs in a loop.
+      if ((conn = accept_new_connection(server)) != NULL) {
         conn->birth_time = conn->last_activity_time = current_time;
       }
     }
@@ -3869,8 +3923,10 @@ void mg_destroy_server(struct mg_server **server) {
     // Do one last poll, see https://github.com/cesanta/mongoose/issues/286
     mg_poll_server(s, 0);
     closesocket(s->listening_sock);
+#ifndef MONGOOSE_NO_SOCKETPAIR
     closesocket(s->ctl[0]);
     closesocket(s->ctl[1]);
+#endif
     LINKED_LIST_FOREACH(&s->active_connections, lp, tmp) {
       close_conn(LINKED_LIST_ENTRY(lp, struct connection, link));
     }
@@ -3889,11 +3945,14 @@ void mg_destroy_server(struct mg_server **server) {
 // Apply function to all active connections.
 void mg_iterate_over_connections(struct mg_server *server, mg_handler_t handler,
                                  void *param) {
-  // Send closure (function + parameter) to the IO thread to execute
-  union { mg_handler_t f; void *p; } msg[2];
-  msg[0].f = handler;
-  msg[1].p = param;
-  send(server->ctl[0], (void *) msg, sizeof(msg), 0);
+  struct ll *lp, *tmp;
+  struct connection *conn;
+
+  LINKED_LIST_FOREACH(&server->active_connections, lp, tmp) {
+    conn = LINKED_LIST_ENTRY(lp, struct connection, link);
+    conn->mg_conn.connection_param = param;
+    handler(&conn->mg_conn);
+  }
 }
 
 static int get_var(const char *data, size_t data_len, const char *name,
@@ -4126,6 +4185,10 @@ void mg_set_request_handler(struct mg_server *server, mg_handler_t handler) {
   server->request_handler = handler;
 }
 
+void mg_set_http_close_handler(struct mg_server *server, mg_handler_t handler) {
+  server->http_close_handler = handler;
+}
+
 void mg_set_http_error_handler(struct mg_server *server, mg_handler_t handler) {
   server->error_handler = handler;
 }
@@ -4165,11 +4228,13 @@ struct mg_server *mg_create_server(void *server_data) {
 
   LINKED_LIST_INIT(&server->active_connections);
 
+#ifndef MONGOOSE_NO_SOCKETPAIR
   // Create control socket pair. Do it in a loop to protect from
   // interrupted syscalls in mg_socketpair().
   do {
     mg_socketpair(server->ctl);
   } while (server->ctl[0] == INVALID_SOCKET);
+#endif
 
 #ifdef MONGOOSE_USE_SSL
   SSL_library_init();
