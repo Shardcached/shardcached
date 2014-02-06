@@ -246,7 +246,9 @@ typedef struct {
     char *mtype;
     int req_status;
     int found;
+    int eof;
 } connection_status;
+
 static int
 shardcache_get_async_callback(void *key,
                               size_t klen,
@@ -259,6 +261,12 @@ shardcache_get_async_callback(void *key,
     connection_status *st = (connection_status *)priv;
     pthread_mutex_lock(&st->wrk->slock);
 
+    if (st->eof) { // the connection has been closed prematurely
+        pthread_mutex_unlock(&st->wrk->slock);
+        free(st);
+        return -1;
+    }
+    
     if (!dlen && !total_size) {
         mg_printf(st->conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
         st->req_status = MG_REQUEST_PROCESSED;
@@ -357,13 +365,12 @@ shardcached_handle_get_request(http_worker_t *wrk, struct mg_connection *conn, c
             mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
         }
     } else {
-        connection_status *st = malloc(sizeof(connection_status));
+        connection_status *st = calloc(1, sizeof(connection_status));
 
         st->wrk = wrk;
         st->conn = conn;
         st->mtype = mtype;
         st->req_status = MG_REQUEST_CALL_AGAIN;
-        st->found = 0;
 
         int rc = shardcache_get_async(wrk->cache, key, strlen(key), shardcache_get_async_callback, st);
         if (rc != 0) {
@@ -426,6 +433,17 @@ shardcached_handle_put_request(http_worker_t *wrk, struct mg_connection *conn, c
     shardcache_set(wrk->cache, key, strlen(key), conn->content, conn->content_len);
 
     mg_printf(conn, "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n");
+}
+
+static int
+shardcached_http_close_handler(struct mg_connection *conn)
+{
+    if (conn->connection_param) {
+        connection_status *st = (connection_status *)conn->connection_param;
+        st->eof = 1;
+        conn->connection_param = NULL;
+    }
+    return 0;
 }
 
 static int
@@ -604,6 +622,7 @@ shcd_http_create(shardcache_t *cache,
         }
 
         mg_set_request_handler(wrk->server, shardcached_request_handler);
+        mg_set_http_close_handler(wrk->server, shardcached_http_close_handler);
 
         TAILQ_INSERT_TAIL(&http->workers, wrk, next);
         if (pthread_create(&wrk->th, NULL, shcd_http_run, wrk) != 0) {
