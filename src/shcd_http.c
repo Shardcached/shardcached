@@ -493,30 +493,37 @@ shardcached_request_handler(struct mg_connection *conn)
     http_worker_t *wrk = conn->server_param;
     
     char *key = (char *)conn->uri;
-    int basepath_found = 0;
 
     int basepath_len = strlen(wrk->basepath);
     int baseadminpath_len = strlen(wrk->adminpath);
     int basepaths_differ = (basepath_len != baseadminpath_len || strcmp(wrk->basepath, wrk->adminpath) != 0);
+    int is_adminpath = 0;
 
     ATOMIC_INCREMENT(shcd_active_requests);
 
     while (*key == '/' && *key)
         key++;
 
-    if (basepath_len) {
-        if (strncmp(key, wrk->basepath, basepath_len) == 0) {
+    if (basepath_len || baseadminpath_len) {
+        if (basepath_len && strncmp(key, wrk->basepath, basepath_len) == 0)
+        {
             key += basepath_len + 1;
-            basepath_found = 1;
             while (*key == '/' && *key)
                 key++;
-        } else {
-            if (!basepaths_differ) {
-                SHC_ERROR("Bad request uri : %s", conn->uri);
-                mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
-                ATOMIC_DECREMENT(shcd_active_requests);
-                return MG_REQUEST_PROCESSED;
-            }
+        }
+        else if (basepaths_differ && baseadminpath_len && strncmp(key, wrk->adminpath, baseadminpath_len) == 0)
+        {
+            is_adminpath = 1;
+            key += baseadminpath_len + 1;
+            while (*key == '/' && *key)
+                key++;
+        }
+        else
+        {
+            SHC_ERROR("Bad request uri : %s", conn->uri);
+            mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
+            ATOMIC_DECREMENT(shcd_active_requests);
+            return MG_REQUEST_PROCESSED;
         }
     }
 
@@ -526,33 +533,12 @@ shardcached_request_handler(struct mg_connection *conn)
         return MG_REQUEST_PROCESSED;
     }
 
-    if (baseadminpath_len && basepaths_differ) {
-        if (!basepath_found && strncmp(key, wrk->adminpath, baseadminpath_len) == 0) {
-            key += baseadminpath_len + 1;
-
-            while (*key == '/' && *key)
-                key++;
-            if (*key == 0) {
-                mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length 9\r\n\r\nNot Found");
-                ATOMIC_DECREMENT(shcd_active_requests);
-                return MG_REQUEST_PROCESSED;
-            }
-
-            if (strncasecmp(conn->request_method, "GET", 3) == 0)
-                shardcached_handle_admin_request(wrk, conn, key, 0);
-            else
-                mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length 9\r\n\r\nForbidden");
-            ATOMIC_DECREMENT(shcd_active_requests);
-            return MG_REQUEST_PROCESSED;
-        }
-    }
-
     // if baseadminpath is not defined or it's the same as basepath,
     // we need to check for the "special" admin keys and handle them differently
     // (in such cases the labels __stats__, __index__ and __health__ become reserved
     // and can't be used as keys from the http interface)
-    if ((!baseadminpath_len || !basepaths_differ) &&
-        (strcmp(key, "__stats__") == 0 || strcmp(key, "__index__") == 0 || strcmp(key, "__health__") == 0))
+    if (is_adminpath || ((!baseadminpath_len || !basepaths_differ) &&
+        (strcmp(key, "__stats__") == 0 || strcmp(key, "__index__") == 0 || strcmp(key, "__health__") == 0)))
     {
         if (strncasecmp(conn->request_method, "GET", 3) == 0)
             shardcached_handle_admin_request(wrk, conn, key, 0);
