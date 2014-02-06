@@ -35,7 +35,6 @@ typedef struct __http_worker_s {
     TAILQ_ENTRY(__http_worker_s) next;
     pthread_t th;
     struct mg_server *server;
-    pthread_mutex_t slock;
     const char *me;
     const char *basepath;
     const char *adminpath;
@@ -252,6 +251,8 @@ typedef struct {
     int req_status;
     int found;
     int eof;
+    pthread_mutex_t slock;
+    fbuf_t *sbuf;
 } connection_status;
 
 static int
@@ -264,31 +265,34 @@ shardcache_get_async_callback(void *key,
                               void *priv)
 {
     connection_status *st = (connection_status *)priv;
-    pthread_mutex_lock(&st->wrk->slock);
+
+    pthread_mutex_lock(&st->slock);
 
     if (st->eof) { // the connection has been closed prematurely
-        pthread_mutex_unlock(&st->wrk->slock);
+        pthread_mutex_unlock(&st->slock);
+        fbuf_free(st->sbuf);
+        pthread_mutex_destroy(&st->slock);
         free(st);
         return -1;
     }
     
     if (!dlen && !total_size) {
-        mg_printf(st->conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
+        fbuf_printf(st->sbuf, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
         st->req_status = MG_REQUEST_PROCESSED;
     }
         
     if (!st->found) {
-        mg_printf(st->conn, HTTP_HEADERS_NO_CLEN, st->mtype);
+        fbuf_printf(st->sbuf, HTTP_HEADERS_NO_CLEN, st->mtype);
         st->found = 1;
     }
 
     if (dlen)
-        mg_write(st->conn, data, dlen);
+        fbuf_add_binary(st->sbuf, data, dlen);
 
     if (total_size) {
         st->req_status = MG_REQUEST_PROCESSED;
     }
-    pthread_mutex_unlock(&st->wrk->slock);
+    pthread_mutex_unlock(&st->slock);
     return 0;
 }
 
@@ -376,6 +380,8 @@ shardcached_handle_get_request(http_worker_t *wrk, struct mg_connection *conn, c
         st->conn = conn;
         st->mtype = mtype;
         st->req_status = MG_REQUEST_CALL_AGAIN;
+        pthread_mutex_init(&st->slock, NULL);
+        st->sbuf = fbuf_create(0);
 
         int rc = shardcache_get_async(wrk->cache, key, strlen(key), shardcache_get_async_callback, st);
         if (rc != 0) {
@@ -445,7 +451,15 @@ shardcached_http_close_handler(struct mg_connection *conn)
 {
     if (conn->connection_param) {
         connection_status *st = (connection_status *)conn->connection_param;
-        st->eof = 1;
+        pthread_mutex_lock(&st->slock);
+        if (st->req_status == MG_REQUEST_PROCESSED) {
+            fbuf_free(st->sbuf);
+            pthread_mutex_destroy(&st->slock);
+            free(st);
+        } else {
+            st->eof = 1;
+            pthread_mutex_unlock(&st->slock);
+        }
         conn->connection_param = NULL;
     }
     return 0;
@@ -457,8 +471,15 @@ shardcached_request_handler(struct mg_connection *conn)
     if (conn->connection_param) {
         connection_status *st = (connection_status *)conn->connection_param;
         int status = st->req_status;
+        int len = fbuf_used(st->sbuf);
+        if (len) {
+            mg_write(conn, fbuf_data(st->sbuf), len);
+            fbuf_remove(st->sbuf, len);
+        } 
         if (status == MG_REQUEST_PROCESSED) {
             conn->connection_param = NULL;
+            fbuf_free(st->sbuf);
+            pthread_mutex_destroy(&st->slock);
             free(st);
         }
         return status;
@@ -596,7 +617,6 @@ shcd_http_create(shardcache_t *cache,
             return NULL;
         }
 
-        pthread_mutex_init(&wrk->slock, NULL);
         wrk->cache = cache;
         wrk->me = me;
         wrk->basepath = basepath;
@@ -650,7 +670,6 @@ shcd_http_destroy(shcd_http_t *http)
         //pthread_cancel(worker->th);
         pthread_join(worker->th, NULL);
         mg_destroy_server(&worker->server);
-        pthread_mutex_destroy(&worker->slock);
         free(worker);
     }
     free(http);
