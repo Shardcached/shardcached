@@ -279,6 +279,8 @@ shardcache_get_async_callback(void *key,
     if (!dlen && !total_size) {
         fbuf_printf(st->sbuf, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
         st->req_status = MG_REQUEST_PROCESSED;
+        pthread_mutex_unlock(&st->slock);
+        return 0;
     }
         
     if (!st->found) {
@@ -386,6 +388,9 @@ shardcached_handle_get_request(http_worker_t *wrk, struct mg_connection *conn, c
         int rc = shardcache_get_async(wrk->cache, key, strlen(key), shardcache_get_async_callback, st);
         if (rc != 0) {
             mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
+            pthread_mutex_destroy(&st->slock);
+            fbuf_free(st->sbuf);
+            free(st);
             return MG_REQUEST_PROCESSED;
         }
 
