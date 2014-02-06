@@ -175,7 +175,7 @@ static void usage(char *progname, int rc, char *msg, ...)
 
 static void shardcached_stop(int sig)
 {
-    __sync_add_and_fetch(&should_exit, 1);
+    (void)__sync_add_and_fetch(&should_exit, 1);
     pthread_mutex_lock(&exit_lock);
     pthread_cond_signal(&exit_cond);
     pthread_mutex_unlock(&exit_lock);

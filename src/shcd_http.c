@@ -26,6 +26,11 @@
 
 #define HTTP_HEADERS_WITH_TIME HTTP_HEADERS_BASE "Last-Modified: %s\r\n\r\n"
 
+#define ATOMIC_INCREMENT(__v) (void)__sync_add_and_fetch(&__v, 1)
+#define ATOMIC_DECREMENT(__v) (void)__sync_sub_and_fetch(&__v, 1)
+
+#define ATOMIC_READ(__v) __sync_fetch_and_add(&__v, 0)
+
 typedef struct __http_worker_s {
     TAILQ_ENTRY(__http_worker_s) next;
     pthread_t th;
@@ -136,7 +141,7 @@ shardcached_build_stats_response(fbuf_t *buf, int do_html, http_worker_t *wrk)
                     "<td>%d</td>"
                     "</tr>",
                     wrk->me,
-                    __sync_fetch_and_add(&shcd_active_requests, 0),
+                    ATOMIC_READ(shcd_active_requests),
                     num_nodes);
 
         for (i = 0; i < num_nodes; i++) {
@@ -149,7 +154,7 @@ shardcached_build_stats_response(fbuf_t *buf, int do_html, http_worker_t *wrk)
     } else {
         fbuf_printf(buf,
                     "active_http_requests;%d\r\nnum_nodes;%d\r\n",
-                    __sync_fetch_and_add(&shcd_active_requests, 0),
+                    ATOMIC_READ(shcd_active_requests),
                     num_nodes);
         for (i = 0; i < num_nodes; i++) {
             fbuf_printf(buf, "node::%s;%s\r\n", nodes[i].label, nodes[i].address);
@@ -468,7 +473,7 @@ shardcached_request_handler(struct mg_connection *conn)
     int baseadminpath_len = strlen(wrk->adminpath);
     int basepaths_differ = (basepath_len != baseadminpath_len || strcmp(wrk->basepath, wrk->adminpath) != 0);
 
-    __sync_add_and_fetch(&shcd_active_requests, 1);
+    ATOMIC_INCREMENT(shcd_active_requests);
 
     while (*key == '/' && *key)
         key++;
@@ -483,7 +488,7 @@ shardcached_request_handler(struct mg_connection *conn)
             if (!basepaths_differ) {
                 SHC_ERROR("Bad request uri : %s", conn->uri);
                 mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
-                __sync_sub_and_fetch(&shcd_active_requests, 1);
+                ATOMIC_DECREMENT(shcd_active_requests);
                 return MG_REQUEST_PROCESSED;
             }
         }
@@ -491,7 +496,7 @@ shardcached_request_handler(struct mg_connection *conn)
 
     if (*key == 0) {
         mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length 9\r\n\r\nNot Found");
-        __sync_sub_and_fetch(&shcd_active_requests, 1);
+        ATOMIC_DECREMENT(shcd_active_requests);
         return MG_REQUEST_PROCESSED;
     }
 
@@ -503,7 +508,7 @@ shardcached_request_handler(struct mg_connection *conn)
                 key++;
             if (*key == 0) {
                 mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length 9\r\n\r\nNot Found");
-                __sync_sub_and_fetch(&shcd_active_requests, 1);
+                ATOMIC_DECREMENT(shcd_active_requests);
                 return MG_REQUEST_PROCESSED;
             }
 
@@ -511,7 +516,7 @@ shardcached_request_handler(struct mg_connection *conn)
                 shardcached_handle_admin_request(wrk, conn, key, 0);
             else
                 mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length 9\r\n\r\nForbidden");
-            __sync_sub_and_fetch(&shcd_active_requests, 1);
+            ATOMIC_DECREMENT(shcd_active_requests);
             return MG_REQUEST_PROCESSED;
         }
     }
@@ -527,7 +532,7 @@ shardcached_request_handler(struct mg_connection *conn)
             shardcached_handle_admin_request(wrk, conn, key, 0);
         else
             mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length 9\r\n\r\nForbidden");
-        __sync_sub_and_fetch(&shcd_active_requests, 1);
+        ATOMIC_DECREMENT(shcd_active_requests);
         return MG_REQUEST_PROCESSED;
 
     }
@@ -546,7 +551,7 @@ shardcached_request_handler(struct mg_connection *conn)
         mg_printf(conn, "HTTP/1.0 405 Method Not Allowed\r\nContent-Length: 11\r\n\r\nNot Allowed");
 
 
-    __sync_sub_and_fetch(&shcd_active_requests, 1);
+    ATOMIC_DECREMENT(shcd_active_requests);
     return MG_REQUEST_PROCESSED;
 }
 
@@ -555,7 +560,7 @@ void *
 shcd_http_run(void *priv)
 {
     http_worker_t *wrk = (http_worker_t *)priv;
-    while (!__sync_fetch_and_add(&wrk->leave, 0)) {
+    while (!ATOMIC_READ(wrk->leave)) {
         mg_poll_server(wrk->server, 1000);
     }
     return NULL;
@@ -641,7 +646,7 @@ shcd_http_destroy(shcd_http_t *http)
     http_worker_t *worker, *tmp;
     TAILQ_FOREACH_SAFE(worker, &http->workers, next, tmp) {
         TAILQ_REMOVE(&http->workers, worker, next);
-        __sync_add_and_fetch(&worker->leave, 1);
+        ATOMIC_INCREMENT(worker->leave);
         //pthread_cancel(worker->th);
         pthread_join(worker->th, NULL);
         mg_destroy_server(&worker->server);
