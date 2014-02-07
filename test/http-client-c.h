@@ -270,16 +270,18 @@ struct http_response* http_req(char *http_headers, int http_len, struct parsed_u
      }
 
     /* Recieve into response*/
-    char *response = (char*)malloc(0);
+    char *response = NULL;
     char BUF[BUFSIZ];
-    int recived_len = 0;
-    while((recived_len = recv(sock, BUF, BUFSIZ-1, 0)) > 0)
+    int received_len = 0;
+    int offset = 0;
+    while((received_len = recv(sock, BUF, BUFSIZ-1, 0)) > 0)
     {
-        BUF[recived_len] = '\0';
-        response = (char*)realloc(response, strlen(response) + strlen(BUF) + 1);
-        sprintf(response, "%s%s", response, BUF);
+        BUF[received_len] = '\0';
+        response = (char*)realloc(response, offset + received_len + 1);
+        memcpy(response + offset, BUF, received_len + 1);
+        offset += received_len;
     }
-    if (recived_len < 0)
+    if (received_len < 0)
     {
         free(http_headers);
         #ifdef _WIN32
@@ -291,9 +293,6 @@ struct http_response* http_req(char *http_headers, int http_len, struct parsed_u
         return NULL;
     }
 
-    /* Reallocate response */
-    response = (char*)realloc(response, strlen(response) + 1);
-
     /* Close socket */
     #ifdef _WIN32
         closesocket(sock);
@@ -303,10 +302,10 @@ struct http_response* http_req(char *http_headers, int http_len, struct parsed_u
 
     /* Parse status code and text */
     char *status_line = get_until(response, "\r\n");
-        if (strstr(status_line, "HTTP/1.1"))
-            status_line = str_replace("HTTP/1.1 ", "", status_line);
-        else
-            status_line = str_replace("HTTP/1.0 ", "", status_line);
+    if (strstr(status_line, "HTTP/1.1"))
+        status_line = str_replace("HTTP/1.1 ", "", status_line);
+    else
+        status_line = str_replace("HTTP/1.0 ", "", status_line);
 
     char *status_code = str_ndup(status_line, 4);
     status_code = str_replace(" ", "", status_code);
