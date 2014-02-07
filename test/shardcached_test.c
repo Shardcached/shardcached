@@ -53,4 +53,6 @@ int main(int argc, char **argv)
     }
 
     ut_summary();
+
+    exit(ut_failed);
 }
