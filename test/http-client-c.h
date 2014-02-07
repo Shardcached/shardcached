@@ -48,7 +48,7 @@
     #include <netdb.h>
     #include <arpa/inet.h>
 #else
-	#error Platform not suppoted.
+    #include <sys/socket.h>
 #endif
 
 #include <errno.h>
