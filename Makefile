@@ -35,7 +35,7 @@ build_deps:
 $(LIBSHARDCACHE_DIR)/libshardcache.a:
 	make -C $(LIBSHARDCACHE_DIR) static
 
-shardcached: objects
+shardcached: $(DEPS) objects
 	$(CC) src/*.o $(LDFLAGS) $(DEPS) -o shardcached
 
 .PHONY: dynamic
@@ -44,6 +44,7 @@ dynamic: objects
 
 $(DEPS): build_deps
 
+.PHONY: objects
 objects: CFLAGS += -fPIC -Ideps/.incs -Isrc -Ideps/.incs -Wall -Werror -Wno-parentheses -Wno-pointer-sign -O3 -g
 objects: $(TARGETS)
 
@@ -62,7 +63,7 @@ libut:
 
 .PHONY: tests
 tests: CFLAGS += -Isrc -Isupport/libut/src -Wall -Werror -Wno-parentheses -Wno-pointer-sign -DTHREAD_SAFE -g -O3
-tests: libut shardcached
+tests: shardcached libut
 	@for i in $(TESTS); do\
 	  echo "$(CC) $(CFLAGS) $$i.c -o $$i $(LDFLAGS) -lm";\
 	  $(CC) $(CFLAGS) $$i.c -o $$i support/libut/libut.a $(LDFLAGS) -lm;\
