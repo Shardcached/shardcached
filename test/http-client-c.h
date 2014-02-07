@@ -48,6 +48,7 @@
     #include <netdb.h>
     #include <arpa/inet.h>
 #else
+    #include <netinet/in.h>
     #include <sys/socket.h>
 #endif
 
