@@ -62,7 +62,7 @@ libut:
 	@if [ ! -f support/libut/Makefile ]; then git submodule init; git submodule update; fi; make -C support/libut
 
 .PHONY: tests
-tests: CFLAGS += -Isrc -Isupport/libut/src -Wall -Werror -Wno-parentheses -Wno-pointer-sign -DTHREAD_SAFE -g -O3
+tests: CFLAGS += -Isrc -Isupport/libut/src -Wno-parentheses -Wno-pointer-sign -DTHREAD_SAFE -g -O3
 tests: shardcached libut
 	@for i in $(TESTS); do\
 	  echo "$(CC) $(CFLAGS) $$i.c -o $$i $(LDFLAGS) -lm";\
