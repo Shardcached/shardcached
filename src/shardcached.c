@@ -33,6 +33,8 @@
 #include "storage.h"
 #include "ini.h"
 
+#define SHARDCACHED_VERSION "0.9.7"
+
 #define SHARDCACHED_ADDRESS_DEFAULT "4321"
 #define SHARDCACHED_LOGLEVEL_DEFAULT 0
 #define SHARDCACHED_SECRET_DEFAULT ""
@@ -126,6 +128,7 @@ static void usage(char *progname, int rc, char *msg, ...)
     }
 
     printf("Usage: %s [OPTION]...\n"
+           "Version: %s (libshardcache: %s)\n"
            "Possible options:\n"
            "    -a <access_log_file>  the path where to store the access_log file (defaults to '%s')\n"
            "    -c <config_file>      the config file to load\n"
@@ -145,6 +148,7 @@ static void usage(char *progname, int rc, char *msg, ...)
            "    -o <options>          comma-separated list of storage options (defaults to '%s')\n"
            "    -u <username>         assume the identity of <username> (only when run as root)\n"
            "    -v                    increase the log level (can be passed multiple times)\n"
+           "    -V                    output the version number and exit\n"
            "    -w <num_workers>      number of shardcache worker threads (defaults to '%d')\n"
            "    -W <num_http_workers> number of http worker threads (defaults to '%d')\n"
            "    -x <nodes>            new list of nodes to migrate the shardcache to. The format to use is the same as for the '-n' option\n"
@@ -160,6 +164,8 @@ static void usage(char *progname, int rc, char *msg, ...)
            "              - storage_path=<path>          the path where to store the keys/values on the filesystem\n"
            "              - tmp_path=<path>              the path to a temporary directory to use while new data is being uploaded\n"
            , progname
+           , SHARDCACHED_VERSION
+           , LIBSHARDCACHE_VERSION
            , SHARDCACHED_ACCESS_LOG_DEFAULT
            , SHARDCACHED_PLUGINS_DIR_DEFAULT
            , SHARDCACHED_STATS_INTERVAL_DEFAULT
@@ -645,11 +651,12 @@ void parse_cmdline(int argc, char **argv)
         {"nostorage", 0, 0, 'N'},
         {"user", 2, 0, 'u'},
         {"help", 0, 0, 'h'},
+        {"version", 0, 0, 'V'},
         {0, 0, 0, 0}
     };
 
     char c;
-    while ((c = getopt_long (argc, argv, "a:b:B:c:d:fg:hHi:l:m:n:Np:s:S:t:o:u:vw:x:?",
+    while ((c = getopt_long (argc, argv, "a:b:B:c:d:fg:hHi:l:m:n:Np:s:S:t:o:u:vVw:x:?",
                              long_options, &option_index)))
     {
         if (c == -1) {
@@ -761,6 +768,9 @@ void parse_cmdline(int argc, char **argv)
             case '?':
                 usage(argv[0], 0, NULL);
                 break;
+            case 'V':
+                printf("%s (libshardcache: %s)\n", SHARDCACHED_VERSION, LIBSHARDCACHE_VERSION);
+                exit(0);
             default:
                 usage(argv[0], -3, "Unknown option : '-%c'", c);
                 break;
