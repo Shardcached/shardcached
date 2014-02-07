@@ -4,3 +4,6 @@
 [submodule "storage_plugins/deps/hiredis"]
 	path = storage_plugins/deps/hiredis
 	url = https://github.com/redis/hiredis.git
+[submodule "support/libut"]
+	path = support/libut
+	url = https://github.com/xant/libut.git

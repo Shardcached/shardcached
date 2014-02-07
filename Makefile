@@ -50,4 +50,26 @@ objects: $(TARGETS)
 clean:
 	rm -f src/*.o
 	rm -f shardcached
+	rm -f test/*_test
 	make -C deps clean
+
+TESTS = $(patsubst %.c, %, $(wildcard test/*.c))
+TEST_EXEC_ORDER =  shardcached_test
+
+.PHONY: libut
+libut:
+	@if [ ! -f support/libut/Makefile ]; then git submodule init; git submodule update; fi; make -C support/libut
+
+.PHONY: tests
+tests: CFLAGS += -Isrc -Isupport/libut/src -Wall -Werror -Wno-parentheses -Wno-pointer-sign -DTHREAD_SAFE -g -O3
+tests: libut shardcached
+	@for i in $(TESTS); do\
+	  echo "$(CC) $(CFLAGS) $$i.c -o $$i $(LDFLAGS) -lm";\
+	  $(CC) $(CFLAGS) $$i.c -o $$i support/libut/libut.a $(LDFLAGS) -lm;\
+	done;\
+	for i in $(TEST_EXEC_ORDER); do echo; test/$$i; echo; done
+
+.PHONY: test
+test: tests
+
+
