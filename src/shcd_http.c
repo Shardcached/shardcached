@@ -520,7 +520,7 @@ shardcached_request_handler(struct mg_connection *conn)
         }
         else
         {
-            SHC_ERROR("Bad request uri : %s", conn->uri);
+            SHC_DEBUG("Out-of-scope uri : %s", conn->uri);
             mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
             ATOMIC_DECREMENT(shcd_active_requests);
             return MG_REQUEST_PROCESSED;
