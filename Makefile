@@ -15,6 +15,8 @@ LDFLAGS +=
 CFLAGS += -Wno-deprecated-declarations
 endif
 
+MONGOOSE_OPTIONS="-DMONGOOSE_NO_CGI -DMONGOOSE_NO_DAVa -DMONGOOSE_NO_SOCKETPAIR -DMONGOOSE_NO_DIRECTORY_LISTING"
+
 #CC = gcc
 TARGETS = $(patsubst %.c, %.o, $(wildcard src/*.c))
 
@@ -45,7 +47,7 @@ dynamic: objects
 $(DEPS): build_deps
 
 .PHONY: objects
-objects: CFLAGS += -fPIC -Ideps/.incs -Isrc -Ideps/.incs -Wall -Werror -Wno-parentheses -Wno-pointer-sign -O3 -g
+objects: CFLAGS += -fPIC $(MONGOOSE_OPTIONS) -Ideps/.incs -Isrc -Ideps/.incs -Wall -Werror -Wno-parentheses -Wno-pointer-sign -O3 -g
 objects: $(TARGETS)
 
 clean:
