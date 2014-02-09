@@ -26,10 +26,10 @@
 
 #define HTTP_HEADERS_WITH_TIME HTTP_HEADERS_BASE "Last-Modified: %s\r\n\r\n"
 
-#define ATOMIC_INCREMENT(__v) (void)__sync_add_and_fetch(&__v, 1)
-#define ATOMIC_DECREMENT(__v) (void)__sync_sub_and_fetch(&__v, 1)
+#define ATOMIC_INCREMENT(__v) (void)__sync_add_and_fetch(&(__v), 1)
+#define ATOMIC_DECREMENT(__v) (void)__sync_sub_and_fetch(&(__v), 1)
 
-#define ATOMIC_READ(__v) __sync_fetch_and_add(&__v, 0)
+#define ATOMIC_READ(__v) __sync_fetch_and_add(&(__v), 0)
 
 typedef struct __http_worker_s {
     TAILQ_ENTRY(__http_worker_s) next;
