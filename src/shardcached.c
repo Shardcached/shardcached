@@ -33,7 +33,7 @@
 #include "storage.h"
 #include "ini.h"
 
-#define SHARDCACHED_VERSION "0.9.8"
+#define SHARDCACHED_VERSION "0.9.9"
 
 #define SHARDCACHED_ADDRESS_DEFAULT "4321"
 #define SHARDCACHED_LOGLEVEL_DEFAULT 0
@@ -77,15 +77,18 @@ typedef struct {
     uint32_t stats_interval;
     char plugins_dir[1024];
     int num_workers;
-    int num_http_workers;
-    char access_log_file[1024];
-    size_t cache_size;
+    int use_persistent_connections;
+    int tcp_timeout;
     int evict_on_delete;
-    shcd_acl_action_t acl_default;
+    size_t cache_size;
     int nohttp;
     int nostorage;
+
+    int num_http_workers;
+    char access_log_file[1024];
+    shcd_acl_action_t acl_default;
+
     char *username;
-    int use_persistent_connections;
     char *pidfile;
 } shardcached_config_t;
 
@@ -115,7 +118,8 @@ static shardcached_config_t config = {
     .nostorage = 0,
     .username = NULL,
     .use_persistent_connections = 1,
-    .pidfile = SHARDCACHED_PIDFILE_DEFAULT
+    .pidfile = SHARDCACHED_PIDFILE_DEFAULT,
+    .tcp_timeout = 0 // will use the default from libshardcache
 };
 
 static void usage(char *progname, int rc, char *msg, ...)
@@ -142,8 +146,9 @@ static void usage(char *progname, int rc, char *msg, ...)
            "    -n <nodes>            list of nodes participating in the shardcache in the form : 'label:address:port,label2:address2:port2'\n"
            "    -N                    no storage subsystem, use only the internal libshardcache volatile storage\n"
            "    -m me                 the label of this node, to identify it among the ones participating in the shardcache\n"
-           "    -s                    cache size in bytes (defaults to : '%d')\n"
            "    -S                    shared secret used for message signing (defaults to : '%s')\n"
+           "    -s                    cache size in bytes (defaults to : '%d')\n"
+           "    -T <tcp_timeout>      tcp timeout (in milliseconds) used for connections opened by libshardcache (defaults to '%d')\n"
            "    -t <type>             storage type (available are : 'mem' and 'fs' (defaults to '%s')\n"
            "    -o <options>          comma-separated list of storage options (defaults to '%s')\n"
            "    -u <username>         assume the identity of <username> (only when run as root)\n"
@@ -169,8 +174,9 @@ static void usage(char *progname, int rc, char *msg, ...)
            , SHARDCACHED_ACCESS_LOG_DEFAULT
            , SHARDCACHED_PLUGINS_DIR_DEFAULT
            , SHARDCACHED_STATS_INTERVAL_DEFAULT
-           , SHARDCACHED_CACHE_SIZE_DEFAULT
            , SHARDCACHED_SECRET_DEFAULT
+           , SHARDCACHED_CACHE_SIZE_DEFAULT
+           , SHARDCACHE_TCP_TIMEOUT_DEFAULT
            , SHARDCACHED_STORAGE_TYPE_DEFAULT
            , SHARDCACHED_STORAGE_OPTIONS_DEFAULT
            , SHARDCACHED_NUM_WORKERS_DEFAULT
@@ -514,6 +520,10 @@ int config_handler(void *user,
                 return 0;
             }
         }
+        else if (strcmp(name, "tcp_timeout") == 0)
+        {
+            config->tcp_timeout = strtol(value, NULL, 10);
+        }
         else if (strcmp(name, "cache_size") == 0)
         {
             config->cache_size = strtol(value, NULL, 10);
@@ -643,6 +653,7 @@ void parse_cmdline(int argc, char **argv)
         {"size", 2, 0, 's'},
         {"secret", 2, 0, 'S'},
         {"type", 2, 0, 't'},
+        {"tcp_timeout", 2, 0, 'T'},
         {"options", 2, 0, 'o'},
         {"verbose", 0, 0, 'v'},
         {"workers", 2, 0, 'w'},
@@ -656,7 +667,7 @@ void parse_cmdline(int argc, char **argv)
     };
 
     char c;
-    while ((c = getopt_long (argc, argv, "a:b:B:c:d:fg:hHi:l:m:n:Np:s:S:t:o:u:vVw:x:?",
+    while ((c = getopt_long (argc, argv, "a:b:B:c:d:fg:hHi:l:m:n:Np:s:S:t:T:o:u:vVw:x:?",
                              long_options, &option_index)))
     {
         if (c == -1) {
@@ -732,6 +743,9 @@ void parse_cmdline(int argc, char **argv)
             case 't':
                 snprintf(config.storage_type,
                         sizeof(config.storage_type), "%s", optarg);
+                break;
+            case 'T':
+                config.tcp_timeout = strtol(optarg, NULL, 10);
                 break;
             case 'p':
                 config.pidfile = strdup(optarg);
@@ -908,6 +922,9 @@ int main(int argc, char **argv)
     }
 
     shardcache_evict_on_delete(cache, config.evict_on_delete);
+    shardcache_use_persistent_connections(cache, config.use_persistent_connections);
+    if (config.tcp_timeout > 0)
+        shardcache_tcp_timeout(cache, config.tcp_timeout);
 
     shcd_http_t *http_server = NULL;
     int rc = 0;
