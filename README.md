@@ -11,7 +11,7 @@ shardcached implements an http frontend exposing all functionalities provided by
 
  * supports mime-types rules to use when serving back items via the http frontend
 
- * pluggable storage backend (and sqlite storage plugin has been already implemented and provided as an example)
+ * pluggable storage backend (sqlite, mysql and redis  storage plugins have been already implemented and provided as an example in the storage_plugins/ directory)
 
  * provides builtin storage modules for both volatile (mem-based) and persistent (filesystem-based) storage
 
@@ -27,22 +27,30 @@ NOTE: Almost all options can be controlled/overridden via the cmdline,
 
 ```
 Usage: shardcached [OPTION]...
-    Possible options:
-    -a <access_log_file>  the path where to store the access_log file (detaults to './shardcached_access.log')
-    -e <error_log_file>   the path where to store the error_log file (defaults to './shardcached_error.log')
+Possible options:
+    -a <access_log_file>  the path where to store the access_log file (defaults to './shardcached_access.log')
+    -c <config_file>      the config file to load
     -d <plugins_path>     the path where to look for storage plugins (defaults to './')
     -f                    run in foreground
+    -H                    disable the HTTP frontend
     -i <interval>         change the time interval (in seconds) used to report internal stats via syslog (defaults to '0')
     -l <ip_address:port>  ip_address:port where to listen for incoming http connections
-    -b                    HTTP url basepath
+    -b                    HTTP url basepath (optional, defaults to '')
+    -B                    HTTP url baseadminpath (optional, defaults to '')
     -n <nodes>            list of nodes participating in the shardcache in the form : 'label:address:port,label2:address2:port2'
+    -N                    no storage subsystem, use only the internal libshardcache volatile storage
     -m me                 the label of this node, to identify it among the ones participating in the shardcache
-    -s                    shared secret used for message signing (defaults to : 'default')
+    -S                    shared secret used for message signing (defaults to : '')
+    -s                    cache size in bytes (defaults to : '536870912')
+    -T <tcp_timeout>      tcp timeout (in milliseconds) used for connections opened by libshardcache (defaults to '30000')
     -t <type>             storage type (available are : 'mem' and 'fs' (defaults to 'mem')
     -o <options>          comma-separated list of storage options (defaults to '')
+    -u <username>         assume the identity of <username> (only when run as root)
     -v                    increase the log level (can be passed multiple times)
-    -w <num_workers>      number of shardcache worker threads (defaults to '50')
-    -x <nodes>            new list of nodes to migrate the shardcache to. The format to use is the same than for the '-n' option
+    -V                    output the version number and exit
+    -w <num_workers>      number of shardcache worker threads (defaults to '10')
+    -W <num_http_workers> number of http worker threads (defaults to '10')
+    -x <nodes>            new list of nodes to migrate the shardcache to. The format to use is the same as for the '-n' option
 
     Builtin storage types:
         * mem            memory based storage
@@ -63,32 +71,47 @@ Example configuration file :
 ```
 [shardcached]
 stats_interval = 0                             ; The interval in seconds at which output stats to stdout and/or syslog
-storage_type = fs
+                                               ; if '0' no stats will be reported on stdout/systlog
+                                               ; (optional, defaults to '0')
+
+storage_type = fs                              ; The storage type (optional, defaults to 'mem')
+
 storage_options = storage_path=/home/xant/shardcache_storage,tmp_path=/tmp
-plugins_dir = ./
-loglevel = 2
-daemon = 0
-me = peer1
+                                               ; storage options (possibly optional, depend on the storage implementation)
+
+
+plugins_dir = ./                               ; The directory where to find plugins (optional, defaults to './')
+loglevel = 2                                   ; The loglevel (optional, defaults to '0' == upto(LOG_ERR))
+daemon = no                                    ; Run as daemon or in foreground (optional, defaults to 'yes')
+nohttp = no                                    ; Disable the HTTP subsystem (optional, defaults to 'no')
+me = peer1                                     ; Identifies this peer among the shardcache nodes
+                                               ; which are defined in the [nodes] section
+;user = username                               ; Assume the identity of 'username' (only when run as root)
+pidfile = /var/run/shardcached.pid             ; File where to store the pid of the running instance (optional)
 
 ; the nodes taking part in the shardcache (required)
 [nodes]
-peer1 = localhost:4444
+peer1 = my_address:4444
 peer2 = some_peer:4445
 peer3 = some_other_peer:4446
 
 [shardcache]
-num_workers = 50
-evict_on_delete = 1                            ; Evict on delete (optional, defaults to 'yes')
+num_workers = 50                               ; Number of shardcache workers (optional, defaults to '10')
+evict_on_delete = yes                          ; Evict on delete (optional, defaults to 'yes')
+use_persistent_connections = yes               ; Use persistent connections instead of creating a new connection
+                                               ; for each command sent to peers
+tcp_timeout = 0                                ; Set the tcp timeout for all the outgoing connections
+                                               ; (if set to 0 or omitted the libshardcache default timeout will be used)
 secret = default                               ; Shared secret used for message signing (optional, defaults to 'default') 
 
 [http]
 listen = *:4321                                ; HTTP address:port where to listen for incoming connections (optional)
-num_workers = 50                               ; Number of http worker threads (optional)
+num_workers = 50                               ; Number of http worker threads (optional, defaults to '10')
 access_log = ./shardcached_access.log          ; Path to the acces_log file (optional)
-error_log = ./shardcached_error.log            ; Path to the error_log file (optional)
 basepath = shardcache                          ; Base http path (optional) 
-acl_default = allow                            ; Default behavior of for paths not mentioned in the acl section
-                                               ; possible values are : 'allow' , 'deny'
+baseadminpath = admin                          ; Base http path for administrative pages (optional, will be the same as basepath if not defined) 
+acl_default = allow                            ; Default behavior for paths not matching any of those defined 
+                                               ; in the acl section. Possible values are : 'allow' , 'deny'
                                                ; (optional, defaults to 'allow')
 
 [acl]
