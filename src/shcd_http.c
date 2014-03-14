@@ -119,7 +119,7 @@ shardcached_build_stats_response(fbuf_t *buf, int do_html, http_worker_t *wrk)
 {
     int i;
     int num_nodes = 0;
-    shardcache_node_t *nodes = shardcache_get_nodes(wrk->cache, &num_nodes);
+    shardcache_node_t **nodes = shardcache_get_nodes(wrk->cache, &num_nodes);
     if (do_html) {
         fbuf_printf(buf,
                     "<html><body>"
@@ -148,7 +148,7 @@ shardcached_build_stats_response(fbuf_t *buf, int do_html, http_worker_t *wrk)
                         "<tr bgcolor='#ffffff'>"
                         "<td>node::%s</td><td>%s</td>"
                         "</td></tr>",
-                        nodes[i].label, nodes[i].address);
+                        shardcache_node_get_label(nodes[i]), shardcache_node_get_address_at_index(nodes[i], 0));
         }
     } else {
         fbuf_printf(buf,
@@ -156,12 +156,12 @@ shardcached_build_stats_response(fbuf_t *buf, int do_html, http_worker_t *wrk)
                     ATOMIC_READ(shcd_active_requests),
                     num_nodes);
         for (i = 0; i < num_nodes; i++) {
-            fbuf_printf(buf, "node::%s;%s\r\n", nodes[i].label, nodes[i].address);
+            fbuf_printf(buf, "node::%s;%s\r\n", shardcache_node_get_label(nodes[i]), shardcache_node_get_address(nodes[i]));
         }
     }
 
     if (nodes)
-        free(nodes);
+        shardcache_free_nodes(nodes, num_nodes);
 
     shardcache_counter_t *counters;
     int ncounters = shardcache_get_counters(wrk->cache, &counters);

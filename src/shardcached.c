@@ -67,9 +67,9 @@ typedef struct {
     int foreground;
     int loglevel;
     char listen_address[256];
-    shardcache_node_t *nodes;
+    shardcache_node_t **nodes;
     int  num_nodes;
-    shardcache_node_t *migration_nodes;
+    shardcache_node_t **migration_nodes;
     int  num_migration_nodes;
     char secret[1024];
     char storage_type[256];
@@ -392,10 +392,8 @@ int config_handler(void *user,
     if (strcmp(section, "nodes") == 0)
     {
         config->num_nodes++;
-        config->nodes = realloc(config->nodes, config->num_nodes * sizeof(shardcache_node_t));
-        shardcache_node_t *node = &config->nodes[config->num_nodes-1];
-        snprintf(node->label, sizeof(node->label), "%s", name);
-        snprintf(node->address, sizeof(node->address), "%s", value);
+        config->nodes = realloc(config->nodes, config->num_nodes * sizeof(shardcache_node_t *));
+        config->nodes[config->num_nodes - 1] = shardcache_node_create((char *)name, (char **)&value, 1);
     }
     else if (strcmp(section, "acl") == 0)
     {
@@ -611,8 +609,10 @@ static int parse_nodes_string(char *str, int migration)
     char *copy = strdup(str);
     char *s = copy;
 
-    int *num_nodes = migration ? &config.num_migration_nodes : &config.num_nodes;
-    shardcache_node_t **nodes = migration ? &config.migration_nodes : &config.nodes;
+    //int *num_nodes = migration ? &config.num_migration_nodes : &config.num_nodes;
+    int num_nodes = 0;
+    shardcache_node_t **nodes = NULL;
+    //migration ? &config.migration_nodes : &config.nodes;
     while (s && *s) {
         char *tok = strsep(&s, ",");
         if(tok) {
@@ -623,11 +623,9 @@ static int parse_nodes_string(char *str, int migration)
                 free(copy);
                 return -1;
             }
-            (*num_nodes)++;
-            *nodes = realloc(*nodes, *num_nodes * sizeof(shardcache_node_t));
-            shardcache_node_t *node = &(*nodes)[(*num_nodes)-1];
-            snprintf(node->label, sizeof(node->label), "%s", label);
-            snprintf(node->address, sizeof(node->address), "%s", addr);
+            num_nodes++;
+            nodes = realloc(nodes, num_nodes * sizeof(shardcache_node_t *));
+            nodes[num_nodes - 1] = shardcache_node_create((char *)label, (char **)&addr, 1);
         } 
     }
     free(copy);
@@ -829,31 +827,6 @@ int main(int argc, char **argv)
         usage(argv[0], -2, "Configuring 'me' is mandatory!");
     }
 
-    // check if me matches one of the nodes
-    int me_check = 0;
-    for (i = 0; i < config.num_nodes; i++) {
-        int is_me = (strcmp(config.me, config.nodes[i].label) == 0);
-        if (is_me) {
-            me_check = 1;
-        } else if (config.nodes[i].address[0] == '*') {
-            fprintf(stderr, "address wildcard '*' is allowed only for the local node (me)\n");
-            exit(-1);
-        }
-    }
-
-    if (!me_check) {
-        // 'me' not found among peers, perhaps a migration will happen
-        // and we are one the the new peers ?
-        for (i = 0; i < config.num_migration_nodes; i++) {
-            if (strcmp(config.me, config.migration_nodes[i].label) == 0) {
-                me_check = 1;
-                break;
-            }
-        }
-        if (!me_check) // no it's really a misconfiguration
-            usage(argv[0], -2, "'me' MUST match the label of one of the configured nodes");
-    }
- 
     // go daemon if we have to
     if (!config.foreground) {
         int rc = daemon(0, 0);
