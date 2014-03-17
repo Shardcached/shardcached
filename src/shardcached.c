@@ -629,6 +629,8 @@ static int parse_nodes_string(char *str, int migration)
         } 
     }
     free(copy);
+    config.nodes = nodes;
+    config.num_nodes = num_nodes;
     return 0;
 }
 
