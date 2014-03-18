@@ -861,7 +861,7 @@ int main(int argc, char **argv)
     signal(SIGQUIT, shardcached_stop);
     signal(SIGPIPE, shardcached_do_nothing);
 
-    shardcache_log_init("shardcached", LOG_ERR + config.loglevel);
+    shardcache_log_init("shardcached", LOG_INFO + config.loglevel);
 
     shcd_storage_t *st = NULL;
     if (!config.nostorage) {
