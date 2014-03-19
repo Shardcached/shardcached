@@ -986,7 +986,7 @@ __exit:
     if (config.username)
         free(config.username);
 
-    free(config.nodes);
+    shardcache_free_nodes(config.nodes, config.num_nodes);
 
     if (config.pidfile) {
         unlink(config.pidfile);
