@@ -47,7 +47,7 @@ dynamic: objects
 $(DEPS): build_deps
 
 .PHONY: objects
-objects: CFLAGS += -fPIC $(MONGOOSE_OPTIONS) -Ideps/.incs -Isrc -Ideps/.incs -Wall -Werror -Wno-parentheses -Wno-pointer-sign -g
+objects: CFLAGS += -fPIC $(MONGOOSE_OPTIONS) -Ideps/.incs -Isrc -Ideps/.incs -Wall -Werror -Wno-parentheses -Wno-pointer-sign -O3 -g
 objects: $(TARGETS)
 
 clean:
@@ -64,7 +64,7 @@ libut:
 	@if [ ! -f support/libut/Makefile ]; then git submodule init; git submodule update; fi; make -C support/libut
 
 .PHONY: tests
-tests: CFLAGS += -Isrc -Isupport/libut/src -Wno-parentheses -Wno-pointer-sign  -Wno-pointer-to-int-cast -DTHREAD_SAFE -g
+tests: CFLAGS += -Isrc -Isupport/libut/src -Wno-parentheses -Wno-pointer-sign  -Wno-pointer-to-int-cast -DTHREAD_SAFE -O3 -g
 tests: shardcached libut
 	@for i in $(TESTS); do\
 	  echo "$(CC) $(CFLAGS) $$i.c -o $$i $(LDFLAGS) -lm";\
