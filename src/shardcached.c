@@ -621,6 +621,8 @@ static int parse_nodes_string(char *str, int migration)
             if (!addr || check_address_string(addr) != 0) {
                 SHC_ERROR("Bad address format for peer: '%s'", addr);
                 free(copy);
+                if (nodes)
+                    free(nodes);
                 return -1;
             }
             num_nodes++;
