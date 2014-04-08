@@ -81,10 +81,8 @@ shcd_acl_action_t shcd_acl_eval(shcd_acl_t *acl,
         int matched = regexec(&item->exp, path, 0, NULL, 0);
         pthread_mutex_unlock(&item->lock);
 
-        if (matched != 0) {
-            pthread_mutex_unlock(&item->lock);
+        if (matched != 0)
             continue;
-        }
 
         res = item->action;
 

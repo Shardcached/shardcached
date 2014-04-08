@@ -549,7 +549,6 @@ shardcached_request_handler(struct mg_connection *conn)
 
     }
 
-    // XXX
     // handle the actual GET/PUT/DELETE request
     if (strncasecmp(conn->request_method, "GET", 3) == 0)
         return shardcached_handle_get_request(wrk, conn, key, 0);
