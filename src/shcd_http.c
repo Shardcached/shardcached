@@ -505,13 +505,16 @@ shardcached_request_handler(struct mg_connection *conn)
         key++;
 
     if (basepath_len || baseadminpath_len) {
-        if (basepath_len && strncmp(key, wrk->basepath, basepath_len) == 0)
+        if (basepath_len && strncmp(key, wrk->basepath, basepath_len) == 0 &&
+            strlen(key) > basepath_len && key[basepath_len] == '/')
         {
             key += basepath_len + 1;
             while (*key == '/' && *key)
                 key++;
         }
-        else if (basepaths_differ && baseadminpath_len && strncmp(key, wrk->adminpath, baseadminpath_len) == 0)
+        else if (basepaths_differ && baseadminpath_len &&
+                 strncmp(key, wrk->adminpath, baseadminpath_len) == 0 &&
+                 strlen(key) > baseadminpath_len && key[baseadminpath_len] == '/')
         {
             is_adminpath = 1;
             key += baseadminpath_len + 1;
