@@ -622,7 +622,7 @@ static int parse_nodes_string(char *str, int migration)
                 SHC_ERROR("Bad address format for peer: '%s'", addr);
                 free(copy);
                 if (nodes)
-                    free(nodes);
+                    shardcache_free_nodes(nodes, num_nodes);
                 return -1;
             }
             num_nodes++;
@@ -724,8 +724,9 @@ void parse_cmdline(int argc, char **argv)
                 // first reset the actual nodes configuration
                 // (which might come from the cfg file)
                 if (config.nodes) {
-                    free(config.nodes);
+                    shardcache_free_nodes(config.nodes, config.num_nodes);
                     config.nodes = NULL;
+                    config.num_nodes = 0;
                 }
                 config.num_nodes = 0;
                 if (parse_nodes_string(optarg, 0) != 0) {
@@ -772,10 +773,10 @@ void parse_cmdline(int argc, char **argv)
                 // first reset the actual migration_nodes configuration
                 // (which might come from the cfg file)
                 if (config.migration_nodes) {
-                    free(config.migration_nodes);
+                    shardcache_free_nodes(config.migration_nodes, config.num_migration_nodes);
                     config.migration_nodes = NULL;
+                    config.num_migration_nodes = 0;
                 }
-                config.num_migration_nodes = 0;
                 if (parse_nodes_string(optarg, 1) != 0) {
                     usage(argv[0], -2, "Bad format : '%s'", optarg);
                 }
