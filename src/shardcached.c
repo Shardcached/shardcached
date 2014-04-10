@@ -832,12 +832,18 @@ int main(int argc, char **argv)
         usage(argv[0], -2, "Configuring 'me' is mandatory!");
     }
 
+    shardcache_t *cache = NULL;
+    shcd_storage_t *st = NULL;
+    shcd_http_t *http_server = NULL;
+
+    int rc = 0;
+
     // go daemon if we have to
     if (!config.foreground) {
-        int rc = daemon(0, 0);
+        rc = daemon(0, 0);
         if (rc != 0) {
             fprintf(stderr, "Can't go daemon: %s\n", strerror(errno));
-            exit(-1);
+            goto __exit;
         }
     }
 
@@ -845,14 +851,20 @@ int main(int argc, char **argv)
         struct stat st;
         if (stat(config.pidfile, &st) == 0) {
             fprintf(stderr, "pidfile %s already exists\n", config.pidfile);
-            exit(-1);
+            free(config.pidfile);
+            config.pidfile = NULL;
+            rc = -1;
+            goto __exit;
         }
         pid_t pid = getpid();
         FILE *pidfile = fopen(config.pidfile, "w");
         if (!pidfile) {
             fprintf(stderr, "Can't open pidfile %s: %s\n",
                     config.pidfile, strerror(errno));
-            exit(-1);
+            free(config.pidfile);
+            config.pidfile = NULL;
+            rc = -1;
+            goto __exit;
         }
         char pidstr[32];
         snprintf(pidstr, 32, "%d", pid);
@@ -866,46 +878,36 @@ int main(int argc, char **argv)
 
     shardcache_log_init("shardcached", LOG_INFO + config.loglevel);
 
-    shcd_storage_t *st = NULL;
     if (!config.nostorage) {
         st = shcd_storage_init(config.storage_type,
-                                               config.storage_options,
-                                               config.plugins_dir);
+                config.storage_options,
+                config.plugins_dir);
         if (!st) {
             SHC_ERROR("Can't initialize the storage subsystem");
-            if (config.pidfile) {
-                unlink(config.pidfile);
-                free(config.pidfile);
-            }
-            exit(-1);
+            rc = -1;
+            goto __exit;
         }
     }
 
     SHC_DEBUG("Starting the shardcache engine with %d workers", config.num_workers);
-    shardcache_t *cache = shardcache_create(config.me,
-                                            config.nodes,
-                                            config.num_nodes,
-                                            st ? shcd_storage_get(st) : NULL,
-                                            config.secret,
-                                            config.num_workers,
-                                            config.cache_size);
+    cache = shardcache_create(config.me,
+                              config.nodes,
+                              config.num_nodes,
+                              st ? shcd_storage_get(st) : NULL,
+                              config.secret,
+                              config.num_workers,
+                              config.cache_size);
 
     if (!cache) {
         SHC_ERROR("Can't initialize the shardcache engine");
-        if (config.pidfile) {
-            unlink(config.pidfile);
-            free(config.pidfile);
-        }
-        exit(-1);
+        rc = -1;
+        goto __exit;
     }
 
     shardcache_evict_on_delete(cache, config.evict_on_delete);
     shardcache_use_persistent_connections(cache, config.use_persistent_connections);
     if (config.tcp_timeout > 0)
         shardcache_tcp_timeout(cache, config.tcp_timeout);
-
-    shcd_http_t *http_server = NULL;
-    int rc = 0;
 
     if (config.nohttp) {
         SHC_NOTICE("HTTP subsystem has been administratively disabled");
@@ -981,7 +983,8 @@ __exit:
     if (mime_types)
         ht_destroy(mime_types);
 
-    shardcache_destroy(cache);
+    if (cache)
+        shardcache_destroy(cache);
 
     if (st)
         shcd_storage_destroy(st);
@@ -989,7 +992,8 @@ __exit:
     if (config.username)
         free(config.username);
 
-    shardcache_free_nodes(config.nodes, config.num_nodes);
+    if (config.num_nodes)
+        shardcache_free_nodes(config.nodes, config.num_nodes);
 
     if (config.pidfile) {
         unlink(config.pidfile);
