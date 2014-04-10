@@ -33,7 +33,7 @@
 #include "storage.h"
 #include "ini.h"
 
-#define SHARDCACHED_VERSION "0.11"
+#define SHARDCACHED_VERSION "0.12"
 
 #define SHARDCACHED_ADDRESS_DEFAULT "4321"
 #define SHARDCACHED_LOGLEVEL_DEFAULT 0
@@ -77,9 +77,9 @@ typedef struct {
     uint32_t stats_interval;
     char plugins_dir[1024];
     int num_workers;
-    int use_persistent_connections;
+
     int tcp_timeout;
-    int evict_on_delete;
+
     size_t cache_size;
     int nohttp;
     int nostorage;
@@ -90,6 +90,11 @@ typedef struct {
 
     char *username;
     char *pidfile;
+
+    // libshardcache flags
+    int use_persistent_connections;
+    int evict_on_delete;
+    int force_caching;
 } shardcached_config_t;
 
 static shardcached_config_t config = {
@@ -112,14 +117,15 @@ static shardcached_config_t config = {
     .num_http_workers = SHARDCACHED_NUM_HTTP_WORKERS_DEFAULT,
     .access_log_file = SHARDCACHED_ACCESS_LOG_DEFAULT,
     .cache_size = SHARDCACHED_CACHE_SIZE_DEFAULT,
-    .evict_on_delete = 1,
     .acl_default = SHCD_ACL_ACTION_ALLOW,
     .nohttp = 0,
     .nostorage = 0,
     .username = NULL,
+    .tcp_timeout = 0, // will use the default from libshardcache
+    .evict_on_delete = 1,
     .use_persistent_connections = 1,
-    .pidfile = SHARDCACHED_PIDFILE_DEFAULT,
-    .tcp_timeout = 0 // will use the default from libshardcache
+    .force_caching = 0,
+    .pidfile = SHARDCACHED_PIDFILE_DEFAULT
 };
 
 static void usage(char *progname, int rc, char *msg, ...)
@@ -382,6 +388,30 @@ static int config_listening_address(char *addr_string, shardcached_config_t *con
     return 1;
 }
 
+static inline int
+parse_boolean_config_param(int *cfg_param,  const char *name, const char *value, int invert)
+{
+    int b = strtol(value, NULL, 10);
+    if (strcasecmp(value, "yes") == 0 ||
+        strcasecmp(value, "true") == 0 ||
+        b == 1)
+    {
+        *cfg_param = invert ? 0 : 1;
+    }
+    else if (strcasecmp(value, "no") == 0 ||
+             strcasecmp(value, "false") == 0 ||
+             b == 0)
+    {
+        *cfg_param = invert ? 1 : 0;
+    }
+    else
+    {
+        fprintf(stderr, "Invalid value %s for option %s\n", value, name);
+        return 0;
+    }
+    return 1;
+}
+
 int config_handler(void *user,
                    const char *section,
                    const char *name,
@@ -429,19 +459,8 @@ int config_handler(void *user,
         }
         else if (strcmp(name, "daemon") == 0)
         {
-            int b = strtol(value, NULL, 10);
-            if (strcasecmp(value, "no") == 0 ||
-                strcasecmp(value, "false") == 0 ||
-                b == 0)
-            {
-                config->foreground = 1;
-            } else if (strcasecmp(value, "yes") &&
-                       strcasecmp(value, "true") &&
-                       b != 1)
-            {
-                fprintf(stderr, "Invalid value %s for option %s\n", value, name);
+            if (!parse_boolean_config_param(&config->foreground, name, value, 1))
                 return 0;
-            }
         }
         else if (strcmp(name, "me") == 0)
         {
@@ -450,21 +469,8 @@ int config_handler(void *user,
         }
         else if (strcmp(name, "nohttp") == 0)
         {
-            int b = strtol(value, NULL, 10);
-            if (strcasecmp(value, "yes") == 0 ||
-                strcasecmp(value, "true") == 0 ||
-                b == 1)
-            {
-                config->nohttp = 1;
-            }
-            else if (strcasecmp(value, "no") &&
-                     strcasecmp(value, "false") &&
-                     b != 1)
-            {
-                fprintf(stderr, "Invalid value %s for option %s\n", value, name);
+            if (!parse_boolean_config_param(&config->nohttp, name, value, 0))
                 return 0;
-            }
-
         }
         else if (strcmp(name, "user") == 0)
         {
@@ -486,37 +492,20 @@ int config_handler(void *user,
         {
             config->num_workers = strtol(value, NULL, 10);
         }
+        else if (strcmp(name, "force_caching") == 0)
+        {
+            if (!parse_boolean_config_param(&config->force_caching, name, value, 0))
+                return 0;
+        }
         else if (strcmp(name, "evict_on_delete") == 0)
         {
-            if (strcasecmp(value, "no") == 0 ||
-                strcasecmp(value, "false") == 0 ||
-                strcasecmp(value, "0") == 0)
-            {
-                config->evict_on_delete = 0;
-            }
-            else if (strcasecmp(value, "yes") &&
-                       strcasecmp(value, "true") &&
-                       strcasecmp(value, "1"))
-            {
-                fprintf(stderr, "Invalid value %s for option %s\n", value, name);
+            if (!parse_boolean_config_param(&config->evict_on_delete, name, value, 0))
                 return 0;
-            }
         }
         else if (strcmp(name, "use_persistent_connections") == 0)
         {
-            if (strcasecmp(value, "no") == 0 ||
-                strcasecmp(value, "false") == 0 ||
-                strcasecmp(value, "0") == 0)
-            {
-                config->use_persistent_connections = 0;
-            }
-            else if (strcasecmp(value, "yes") &&
-                       strcasecmp(value, "true") &&
-                       strcasecmp(value, "1"))
-            {
-                fprintf(stderr, "Invalid value %s for option %s\n", value, name);
+            if (!parse_boolean_config_param(&config->evict_on_delete, name, value, 0))
                 return 0;
-            }
         }
         else if (strcmp(name, "tcp_timeout") == 0)
         {
@@ -904,8 +893,11 @@ int main(int argc, char **argv)
         goto __exit;
     }
 
+    // set all the configurable libshardcache flags and options
     shardcache_evict_on_delete(cache, config.evict_on_delete);
     shardcache_use_persistent_connections(cache, config.use_persistent_connections);
+    shardcache_force_caching(cache, config.force_caching);
+
     if (config.tcp_timeout > 0)
         shardcache_tcp_timeout(cache, config.tcp_timeout);
 
