@@ -154,6 +154,7 @@ static void usage(char *progname, int rc, char *msg, ...)
            "    -c <config_file>      the config file to load\n"
            "    -d <plugins_path>     the path where to look for storage plugins (defaults to '%s')\n"
            "    -f                    run in foreground\n"
+           "    -F                    force caching\n"
            "    -H                    disable the HTTP frontend\n"
            "    -i <interval>         change the time interval (in seconds) used to report internal stats via syslog (defaults to '%d')\n"
            "    -l <ip_address:port>  ip_address:port where to listen for incoming http connections\n"
@@ -696,7 +697,7 @@ void parse_cmdline(int argc, char **argv)
     };
 
     char c;
-    while ((c = getopt_long (argc, argv, "a:b:B:c:d:E:fg:hHi:l:Lm:n:Np:r:R:s:S:t:T:o:u:vVw:x:?",
+    while ((c = getopt_long (argc, argv, "a:b:B:c:d:E:fFg:hHi:l:Lm:n:Np:r:R:s:S:t:T:o:u:vVw:x:?",
                              long_options, &option_index)))
     {
         if (c == -1) {
@@ -734,6 +735,9 @@ void parse_cmdline(int argc, char **argv)
                 break;
             case 'f':
                 config.foreground = 1;
+                break;
+            case 'F':
+                config.force_caching = 1;
                 break;
             case 'H':
                 config.nohttp = 1;
