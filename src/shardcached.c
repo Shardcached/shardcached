@@ -78,8 +78,6 @@ typedef struct {
     char plugins_dir[1024];
     int num_workers;
 
-    int tcp_timeout;
-
     size_t cache_size;
     int nohttp;
     int nostorage;
@@ -95,6 +93,14 @@ typedef struct {
     int use_persistent_connections;
     int evict_on_delete;
     int force_caching;
+    int lazy_expiration;
+
+    // libshardcache params
+    int tcp_timeout;
+    int expire_time;
+    int iomux_run_timeout_low;
+    int iomux_run_timeout_high;
+    
 } shardcached_config_t;
 
 static shardcached_config_t config = {
@@ -125,6 +131,10 @@ static shardcached_config_t config = {
     .evict_on_delete = 1,
     .use_persistent_connections = 1,
     .force_caching = 0,
+    .lazy_expiration = 0,
+    .expire_time = 0,
+    .iomux_run_timeout_low = 0,
+    .iomux_run_timeout_high = 0,
     .pidfile = SHARDCACHED_PIDFILE_DEFAULT
 };
 
@@ -147,6 +157,10 @@ static void usage(char *progname, int rc, char *msg, ...)
            "    -H                    disable the HTTP frontend\n"
            "    -i <interval>         change the time interval (in seconds) used to report internal stats via syslog (defaults to '%d')\n"
            "    -l <ip_address:port>  ip_address:port where to listen for incoming http connections\n"
+           "    -L                    enable lazy expiration\n"
+           "    -E <expire_time>      set the expiration time for cached items (defaults to: %d)\n"
+           "    -r <mux_timeout_low>  set the low timeout passed to iomux_run() calls (in microsecs, defaults to: %d)\n"
+           "    -R <mux_timeout_high> set the high timeout pssed to iomux_run() calls (in microsecs, defaults to: %d)\n"
            "    -b                    HTTP url basepath (optional, defaults to '')\n"
            "    -B                    HTTP url baseadminpath (optional, defaults to '')\n"
            "    -n <nodes>            list of nodes participating in the shardcache in the form : 'label:address:port,label2:address2:port2'\n"
@@ -180,6 +194,9 @@ static void usage(char *progname, int rc, char *msg, ...)
            , SHARDCACHED_ACCESS_LOG_DEFAULT
            , SHARDCACHED_PLUGINS_DIR_DEFAULT
            , SHARDCACHED_STATS_INTERVAL_DEFAULT
+           , SHARDCACHE_EXPIRE_TIME_DEFAULT
+           , SHARDCACHE_IOMUX_RUN_TIMEOUT_LOW
+           , SHARDCACHE_IOMUX_RUN_TIMEOUT_HIGH
            , SHARDCACHED_SECRET_DEFAULT
            , SHARDCACHED_CACHE_SIZE_DEFAULT
            , SHARDCACHE_TCP_TIMEOUT_DEFAULT
@@ -492,6 +509,23 @@ int config_handler(void *user,
         {
             config->num_workers = strtol(value, NULL, 10);
         }
+        else if (strcmp(name, "lazy_expiration") == 0)
+        {
+            if (!parse_boolean_config_param(&config->lazy_expiration, name, value, 0))
+                return 0;
+        }
+        else if (strcmp(name, "expire_time") == 0)
+        {
+            config->expire_time = strtol(value, NULL, 10);
+        }
+        else if (strcmp(name, "iomux_run_timeout_low") == 0)
+        {
+            config->iomux_run_timeout_low = strtol(value, NULL, 10);
+        }
+        else if (strcmp(name, "iomux_run_timeout_high") == 0)
+        {
+            config->iomux_run_timeout_high = strtol(value, NULL, 10);
+        }
         else if (strcmp(name, "force_caching") == 0)
         {
             if (!parse_boolean_config_param(&config->force_caching, name, value, 0))
@@ -635,12 +669,16 @@ void parse_cmdline(int argc, char **argv)
         {"basepath", 2, 0, 'b'},
         {"baseadminpath", 2, 0, 'B'},
         {"plugins_directory", 2, 0, 'd'},
+        {"expire_time", 2, 0, 'E'},
         {"foreground", 0, 0, 'f'},
         {"stats_interval", 2, 0, 'i'},
         {"listen", 2, 0, 'l'},
+        {"lazy_expiration", 0, 0, 'L'},
         {"me", 2, 0, 'm'},
         {"nodes", 2, 0, 'n'},
         {"pidfile", 2, 0, 'p'},
+        {"mux_timeout_low", 2, 0, 'r'},
+        {"mux_timeout_high", 2, 0, 'R'},
         {"size", 2, 0, 's'},
         {"secret", 2, 0, 'S'},
         {"type", 2, 0, 't'},
@@ -658,7 +696,7 @@ void parse_cmdline(int argc, char **argv)
     };
 
     char c;
-    while ((c = getopt_long (argc, argv, "a:b:B:c:d:fg:hHi:l:m:n:Np:s:S:t:T:o:u:vVw:x:?",
+    while ((c = getopt_long (argc, argv, "a:b:B:c:d:E:fg:hHi:l:Lm:n:Np:r:R:s:S:t:T:o:u:vVw:x:?",
                              long_options, &option_index)))
     {
         if (c == -1) {
@@ -684,6 +722,9 @@ void parse_cmdline(int argc, char **argv)
                 snprintf(config.plugins_dir,
                         sizeof(config.plugins_dir), "%s", optarg);
                 break;
+            case 'E':
+                config.expire_time = strtol(optarg, NULL, 10);
+                break;
             case 'B':
                 // skip leading '/'s
                 while (*optarg == '/')
@@ -705,6 +746,9 @@ void parse_cmdline(int argc, char **argv)
                     usage(argv[0], -2, "Can't use the listening address : %s\n", optarg);
                 }
                 break;
+            case 'L':
+                config.lazy_expiration = 1;
+                break;
             case 'm':
                 snprintf(config.me,
                         sizeof(config.me), "%s", optarg);
@@ -724,6 +768,12 @@ void parse_cmdline(int argc, char **argv)
                 break;
             case 'N':
                 config.nostorage = 1;
+                break;
+            case 'r':
+                config.iomux_run_timeout_low = strtol(optarg, NULL, 10);
+                break;
+            case 'R':
+                config.iomux_run_timeout_high = strtol(optarg, NULL, 10);
                 break;
             case 's':
                 config.cache_size = strtol(optarg, NULL, 10);
@@ -897,6 +947,10 @@ int main(int argc, char **argv)
     shardcache_evict_on_delete(cache, config.evict_on_delete);
     shardcache_use_persistent_connections(cache, config.use_persistent_connections);
     shardcache_force_caching(cache, config.force_caching);
+    shardcache_lazy_expiration(cache, config.lazy_expiration);
+    shardcache_expire_time(cache, config.expire_time);
+    shardcache_iomux_run_timeout_low(cache, config.iomux_run_timeout_low);
+    shardcache_iomux_run_timeout_high(cache, config.iomux_run_timeout_high);
 
     if (config.tcp_timeout > 0)
         shardcache_tcp_timeout(cache, config.tcp_timeout);

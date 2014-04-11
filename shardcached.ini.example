@@ -31,7 +31,17 @@ use_persistent_connections = yes               ; Use persistent connections inst
 force_caching = no                             ; Always cache remote items instead of applying a 10% chance (optional, defaults to 'no')
                                                ; for each command sent to peers
 tcp_timeout = 0                                ; Set the tcp timeout for all the outgoing connections
+                                               ; (optional, a 0 value will make libshardcache use the compile-time default)
                                                ; (if set to 0 or omitted the libshardcache default timeout will be used)
+lazy_expiration = no                           ; Enable lazy expiration (optional, defaults to 'no')
+expire_time = 0                                ; Sets the global expiration time for cached items (optional, defaults to 0, items will never expire
+                                               ; and will be removed from the cache only if explicitly/naturally evicted)
+iomux_run_timeout_low = 0                      ; Sets the low timeout (in microsecs) which will be passed to iomux_run() calls
+                                               ; by both the serving workers and the async reader
+                                               ; (optional, a 0 value will make libshardcache use the compile-time default)
+iomux_run_timeout_high = 0                     ; Sets the high timeout (in microsecs) which will be passed to iomux_run() calls
+                                               ; by both the listener and the expirer
+                                               ; (optional, a 0 value will make libshardcache use the compile-time default)
 secret = default                               ; Shared secret used for message signing (optional, defaults to 'default') 
 
 [http]

@@ -26,7 +26,8 @@ NOTE: Almost all options can be controlled/overridden via the cmdline,
 ===============================================================================================================================
 
 ```
-Usage: shardcached [OPTION]...
+Usage: ./shardcached [OPTION]...
+Version: 0.12 (libshardcache: 0.14)
 Possible options:
     -a <access_log_file>  the path where to store the access_log file (defaults to './shardcached_access.log')
     -c <config_file>      the config file to load
@@ -35,6 +36,10 @@ Possible options:
     -H                    disable the HTTP frontend
     -i <interval>         change the time interval (in seconds) used to report internal stats via syslog (defaults to '0')
     -l <ip_address:port>  ip_address:port where to listen for incoming http connections
+    -L                    enable lazy expiration
+    -E <expire_time>      set the expiration time for cached items (defaults to: 0)
+    -r <mux_timeout_low>  set the low timeout passed to iomux_run() calls (in microsecs, defaults to: 100000)
+    -R <mux_timeout_high> set the high timeout pssed to iomux_run() calls (in microsecs, defaults to: 500000)
     -b                    HTTP url basepath (optional, defaults to '')
     -B                    HTTP url baseadminpath (optional, defaults to '')
     -n <nodes>            list of nodes participating in the shardcache in the form : 'label:address:port,label2:address2:port2'
@@ -42,7 +47,7 @@ Possible options:
     -m me                 the label of this node, to identify it among the ones participating in the shardcache
     -S                    shared secret used for message signing (defaults to : '')
     -s                    cache size in bytes (defaults to : '536870912')
-    -T <tcp_timeout>      tcp timeout (in milliseconds) used for connections opened by libshardcache (defaults to '30000')
+    -T <tcp_timeout>      tcp timeout (in milliseconds) used for connections opened by libshardcache (defaults to '5000')
     -t <type>             storage type (available are : 'mem' and 'fs' (defaults to 'mem')
     -o <options>          comma-separated list of storage options (defaults to '')
     -u <username>         assume the identity of <username> (only when run as root)
@@ -52,17 +57,16 @@ Possible options:
     -W <num_http_workers> number of http worker threads (defaults to '10')
     -x <nodes>            new list of nodes to migrate the shardcache to. The format to use is the same as for the '-n' option
 
-    Builtin storage types:
-        * mem            memory based storage
-          Options:
-            - initial_table_size=<size>    the initial number of slots in the internal hashtable
-            - max_table_size=<size>        the maximum number of slots that the internal hashtable can be grown up to
+       Builtin storage types:
+         * mem            memory based storage
+            Options:
+              - initial_table_size=<size>    the initial number of slots in the internal hashtable
+              - max_table_size=<size>        the maximum number of slots that the internal hashtable can be grown up to
 
-        * fs             filesystem based storage
-          Options:
-            - storage_path=<path>          the parh where to store the keys/values on the filesystem
-            - tmp_path=<path>              the path to a temporary directory to use while new data is being uploaded
-
+         * fs             filesystem based storage
+            Options:
+              - storage_path=<path>          the path where to store the keys/values on the filesystem
+              - tmp_path=<path>              the path to a temporary directory to use while new data is being uploaded
 ```
 
 ===============================================================================================================================
@@ -99,9 +103,20 @@ peer3 = some_other_peer:4446
 num_workers = 50                               ; Number of shardcache workers (optional, defaults to '10')
 evict_on_delete = yes                          ; Evict on delete (optional, defaults to 'yes')
 use_persistent_connections = yes               ; Use persistent connections instead of creating a new connection
+force_caching = no                             ; Always cache remote items instead of applying a 10% chance (optional, defaults to 'no')
                                                ; for each command sent to peers
 tcp_timeout = 0                                ; Set the tcp timeout for all the outgoing connections
+                                               ; (optional, a 0 value will make libshardcache use the compile-time default)
                                                ; (if set to 0 or omitted the libshardcache default timeout will be used)
+lazy_expiration = no                           ; Enable lazy expiration (optional, defaults to 'no')
+expire_time = 0                                ; Sets the global expiration time for cached items (optional, defaults to 0, items will never expire
+                                               ; and will be removed from the cache only if explicitly/naturally evicted)
+iomux_run_timeout_low = 0                      ; Sets the low timeout (in microsecs) which will be passed to iomux_run() calls
+                                               ; by both the serving workers and the async reader
+                                               ; (optional, a 0 value will make libshardcache use the compile-time default)
+iomux_run_timeout_high = 0                     ; Sets the high timeout (in microsecs) which will be passed to iomux_run() calls
+                                               ; by both the listener and the expirer
+                                               ; (optional, a 0 value will make libshardcache use the compile-time default)
 secret = default                               ; Shared secret used for message signing (optional, defaults to 'default') 
 
 [http]
@@ -118,7 +133,7 @@ acl_default = allow                            ; Default behavior for paths not 
 __(stats|index)__  = deny:*:*
 .*                 = deny:PUT:*
 .*                 = deny:DELETE:*
-.*                 = allow:*:192.168.0.0/24
+.*                 = allow:*:82.173.134.166/32
 .*                 = allow:*:127.0.0.1/32
 
 
@@ -139,5 +154,4 @@ csv      = text/csv
 css      = text/css
 mpg      = video/mpeg
 mp4      = video/mp4
-
 ```
