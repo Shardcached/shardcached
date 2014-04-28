@@ -174,7 +174,7 @@ shardcached_build_stats_response(fbuf_t *buf, int do_html, http_worker_t *wrk)
                         counters[i].value);
         else
             fbuf_printf(buf,
-                        "%s;%u\r\n",
+                        "%s;%llu\r\n",
                         counters[i].name,
                         counters[i].value);
     }

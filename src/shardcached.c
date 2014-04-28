@@ -33,7 +33,7 @@
 #include "storage.h"
 #include "ini.h"
 
-#define SHARDCACHED_VERSION "0.12"
+#define SHARDCACHED_VERSION "0.13"
 
 #define SHARDCACHED_ADDRESS_DEFAULT "4321"
 #define SHARDCACHED_LOGLEVEL_DEFAULT 0
@@ -248,24 +248,24 @@ static void shardcached_run(shardcache_t *cache, uint32_t stats_interval)
             fbuf_t out = FBUF_STATIC_INITIALIZER;
             for (i = 0; i < ncounters; i++) {
 
-                uint32_t *prev = ht_get(prevcounters,
+                uint64_t *prev = ht_get(prevcounters,
                                         counters[i].name,
                                         strlen(counters[i].name),
                                         NULL);
 
                 fbuf_printf(&out,
-                            "%s: %u\n",
+                            "%s: %llu\n",
                             counters[i].name,
                             counters[i].value - (prev ? *prev : 0));
 
                 if (prev) {
                     *prev = counters[i].value;
                 } else {
-                    uint32_t *prev_value = malloc(sizeof(uint32_t));
+                    uint64_t *prev_value = malloc(sizeof(uint64_t));
                     *prev_value = counters[i].value;
                     ht_set(prevcounters, counters[i].name,
                            strlen(counters[i].name), prev_value,
-                           sizeof(uint32_t));
+                           sizeof(uint64_t));
                 }
             }
             SHC_NOTICE("Shardcache stats: %s\n", fbuf_data(&out));
