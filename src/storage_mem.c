@@ -19,7 +19,7 @@ free_item_cb(void *ptr)
 }
 
 static void *
-copy_item_cb(void *ptr, size_t len)
+copy_item_cb(void *ptr, size_t len, void *user)
 {
     stored_item_t *item = (stored_item_t *)ptr;
     stored_item_t *copy = malloc(sizeof(stored_item_t));
@@ -37,7 +37,8 @@ st_fetch(void *key, size_t len, size_t *vlen, void *priv)
                                             key,
                                             len,
                                             NULL,
-                                            copy_item_cb);
+                                            copy_item_cb,
+                                            NULL);
     void *v = NULL;
     if (item) {
         v = item->value;
