@@ -29,8 +29,8 @@ copy_item_cb(void *ptr, size_t len, void *user)
     return copy;
 }
 
-static void *
-st_fetch(void *key, size_t len, size_t *vlen, void *priv)
+static int
+st_fetch(void *key, size_t len, void **value, size_t *vlen, void *priv)
 {
     hashtable_t *storage = (hashtable_t *)priv;
     stored_item_t *item =  ht_get_deep_copy(storage,
@@ -46,7 +46,10 @@ st_fetch(void *key, size_t len, size_t *vlen, void *priv)
             *vlen = item->size;
         free(item);
     }
-    return v;
+    if (value)
+        *value = v;
+
+    return 0;
 }
 
 static int

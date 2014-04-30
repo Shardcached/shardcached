@@ -287,7 +287,7 @@ st_get_dbconnection(storage_mysql_t *st)
 
 
 
-static void *st_fetch(void *key, size_t klen, size_t *vlen, void *priv)
+static int st_fetch(void *key, size_t klen, void **value, size_t *vlen, void *priv)
 {
     storage_mysql_t *st = (storage_mysql_t *)priv;
 
@@ -305,7 +305,7 @@ static void *st_fetch(void *key, size_t klen, size_t *vlen, void *priv)
     db_connection_t *dbc = st_get_dbconnection(st);
     if (!dbc) {
         free(keystr);
-        return NULL;
+        return -1;
     }
 
     MYSQL_BIND bnd = {
@@ -318,7 +318,7 @@ static void *st_fetch(void *key, size_t klen, size_t *vlen, void *priv)
         // TODO - error messages
         SPIN_UNLOCK(&dbc->lock);
         free(keystr);
-        return NULL;
+        return -1;
     }
 
     if (mysql_stmt_execute(dbc->select_stmt) != 0) {
@@ -326,7 +326,7 @@ static void *st_fetch(void *key, size_t klen, size_t *vlen, void *priv)
         fprintf(stderr, "Can't execute fetch statement : %s\n", mysql_stmt_error(dbc->select_stmt));
         SPIN_UNLOCK(&dbc->lock);
         free(keystr);
-        return NULL;
+        return -1;
     }
 
     size_t size = 256;
@@ -358,8 +358,16 @@ static void *st_fetch(void *key, size_t klen, size_t *vlen, void *priv)
         free(data);
         data = NULL;
     } else {
-        if (vlen)
+
+        if (value) {
+            *value = data;
+        } else {
+            free(data);
+        }
+
+        if (vlen) {
             *vlen = size;
+        }
     }
 
     mysql_stmt_free_result(dbc->select_stmt);
@@ -368,7 +376,7 @@ static void *st_fetch(void *key, size_t klen, size_t *vlen, void *priv)
     SPIN_UNLOCK(&dbc->lock);
 
     free(keystr);
-    return data;
+    return 0;
 }
 
 static int st_store(void *key, size_t klen, void *value, size_t vlen, void *priv)

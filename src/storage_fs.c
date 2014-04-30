@@ -72,14 +72,14 @@ st_fs_filename(char *basepath, void *key, size_t klen, char **intermediate_path)
     return fullpath;
 }
 
-static void *
-st_fetch(void *key, size_t klen, size_t *vlen, void *priv)
+static int
+st_fetch(void *key, size_t klen, void **value, size_t *vlen, void *priv)
 {
     storage_fs_t *storage = (storage_fs_t *)priv;
     char *fullpath = st_fs_filename(storage->path, key, klen, NULL);
 
     if (!fullpath)
-        return NULL;
+        return -1;
 
     int fd = open(fullpath, O_RDONLY);
     if (fd >=0) {
@@ -96,12 +96,16 @@ st_fetch(void *key, size_t klen, size_t *vlen, void *priv)
         if (fbuf_used(&buf)) {
             if (vlen)
                 *vlen = fbuf_used(&buf);
+            if (value)
+                *value = fbuf_data(&buf);
+            else
+                fbuf_destroy(&buf);
             free(fullpath);
-            return fbuf_data(&buf);
+            return 0;
         }
     }
     free(fullpath);
-    return NULL;
+    return -1;
 }
 
 static int

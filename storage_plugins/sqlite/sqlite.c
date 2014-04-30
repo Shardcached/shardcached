@@ -81,7 +81,8 @@ parse_options(storage_sqlite_t *st, const char **options)
     }
 }
 
-static void *st_fetch(void *key, size_t klen, size_t *vlen, void *priv)
+static int
+st_fetch(void *key, size_t klen, void **value, size_t *vlen, void *priv)
 {
     storage_sqlite_t *st = (storage_sqlite_t *)priv;
 
@@ -114,24 +115,32 @@ static void *st_fetch(void *key, size_t klen, size_t *vlen, void *priv)
         bytes = sqlite3_column_int(st->select_stmt, 3);
         sqlite_data  = sqlite3_column_blob (st->select_stmt, 4);
         if (bytes && sqlite_data) {
-            data = malloc(bytes);
-            memcpy(data, sqlite_data, bytes);
+            if (value) {
+                *value = malloc(bytes);
+                memcpy(*value, sqlite_data, bytes);
+            }
+
             if (vlen)
                 *vlen = bytes;
+        } else {
+            if (vlen)
+                *vlen = 0;
+            if (value)
+                *value = NULL;
         }
         rc = sqlite3_step(st->select_stmt);
     }
 
     pthread_mutex_unlock(&st->lock);
 
-    if (!data && vlen)
-        *vlen = 0;
 
     free(keystr);
-    return data;
+
+    return 0;
 }
 
-static int st_store(void *key, size_t klen, void *value, size_t vlen, void *priv)
+static int
+st_store(void *key, size_t klen, void *value, size_t vlen, void *priv)
 {
     storage_sqlite_t *st = (storage_sqlite_t *)priv;
     char* errorMessage;
@@ -168,7 +177,8 @@ static int st_store(void *key, size_t klen, void *value, size_t vlen, void *priv
     return 0;
 }
 
-static int st_remove(void *key, size_t klen, void *priv)
+static int
+st_remove(void *key, size_t klen, void *priv)
 {
 
     storage_sqlite_t *st = (storage_sqlite_t *)priv;
@@ -201,7 +211,8 @@ static int st_remove(void *key, size_t klen, void *priv)
     return 0;
 }
 
-static int st_exist(void *key, size_t klen, void *priv) {
+static int
+st_exist(void *key, size_t klen, void *priv) {
     storage_sqlite_t *st = (storage_sqlite_t *)priv;
     char* errorMessage;
 
@@ -238,7 +249,8 @@ static int st_exist(void *key, size_t klen, void *priv) {
     return (count == 1);   
 }
 
-static size_t st_count(void *priv)
+static size_t
+st_count(void *priv)
 {
     storage_sqlite_t *st = (storage_sqlite_t *)priv;
 
@@ -257,7 +269,8 @@ static size_t st_count(void *priv)
     return count;
 }
 
-static size_t st_index(shardcache_storage_index_item_t *index, size_t isize, void *priv)
+static size_t
+st_index(shardcache_storage_index_item_t *index, size_t isize, void *priv)
 {
     storage_sqlite_t *st = (storage_sqlite_t *)priv;
 

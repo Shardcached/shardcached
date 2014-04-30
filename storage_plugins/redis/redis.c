@@ -139,13 +139,13 @@ st_get_connection(storage_redis_t *st)
     return c;
 }
 
-static void *st_fetch(void *key, size_t klen, size_t *vlen, void *priv)
+static int st_fetch(void *key, size_t klen, void **value, size_t *vlen, void *priv)
 {
     storage_redis_t *st = (storage_redis_t *)priv;
 
     redis_connection_t *c = st_get_connection(st);
     if (!c) {
-        return NULL;
+        return -1;
     }
     redisReply *resp = redisCommand(c->context, "GET %b", key, klen);
     SPIN_UNLOCK(&c->lock);
@@ -153,15 +153,18 @@ static void *st_fetch(void *key, size_t klen, size_t *vlen, void *priv)
         // TODO - Error messages
         if (resp)
             freeReplyObject(resp);
-        return NULL;
+        return -1;
     }
-    void *v = malloc(resp->len);
-    memcpy(v, resp->str, resp->len);
+    if (value) {
+        *value = malloc(resp->len);
+        memcpy(*value, resp->str, resp->len);
+    }
     if (vlen)
         *vlen = resp->len;
+
     freeReplyObject(resp);
 
-    return v;
+    return 0;
 }
 
 static int st_store(void *key, size_t klen, void *value, size_t vlen, void *priv)
