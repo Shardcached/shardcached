@@ -33,7 +33,7 @@
 #include "storage.h"
 #include "ini.h"
 
-#define SHARDCACHED_VERSION "0.13"
+#define SHARDCACHED_VERSION "0.14"
 
 #define SHARDCACHED_ADDRESS_DEFAULT "4321"
 #define SHARDCACHED_LOGLEVEL_DEFAULT 0
