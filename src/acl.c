@@ -29,8 +29,8 @@ void shcd_acl_item_destroy(shcd_acl_item_t *item)
 shcd_acl_t *shcd_acl_create(shcd_acl_action_t default_action)
 {
     shcd_acl_t *acl = calloc(1, sizeof(shcd_acl_t));
-    acl->list = create_list();
-    set_free_value_callback(acl->list,  (free_value_callback_t)shcd_acl_item_destroy);
+    acl->list = list_create();
+    list_set_free_value_callback(acl->list,  (free_value_callback_t)shcd_acl_item_destroy);
     acl->default_action = default_action;
     return acl;
 }
@@ -55,7 +55,7 @@ int shcd_acl_add(shcd_acl_t *acl,
     item->ipaddr = ipaddr;
     item->mask = mask;
     pthread_mutex_init(&item->lock, NULL);
-    push_value(acl->list, item);
+    list_push_value(acl->list, item);
     return 0;
 }
 
@@ -68,7 +68,7 @@ shcd_acl_action_t shcd_acl_eval(shcd_acl_t *acl,
     int i;
 
     for (i = 0; i < list_count(acl->list); i++) {
-        shcd_acl_item_t *item = pick_value(acl->list, i);
+        shcd_acl_item_t *item = list_pick_value(acl->list, i);
 
         if (item->method != SHCD_ACL_METHOD_ANY && item->method != method)
             continue;
@@ -98,7 +98,7 @@ shcd_acl_action_t shcd_acl_eval(shcd_acl_t *acl,
 
 void shcd_acl_destroy(shcd_acl_t *acl)
 {
-    destroy_list(acl->list);
+    list_destroy(acl->list);
     free(acl);
 }
 
