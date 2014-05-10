@@ -103,7 +103,15 @@ st_fetch(void *key, size_t klen, void **value, size_t *vlen, void *priv)
             free(fullpath);
             return 0;
         }
+    } else if (errno == ENOENT) {
+        if (vlen)
+            *vlen = 0;
+        if (value)
+            *value = NULL;
+        free(fullpath);
+        return 0;
     }
+
     free(fullpath);
     return -1;
 }
