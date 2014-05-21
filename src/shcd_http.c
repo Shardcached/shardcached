@@ -244,6 +244,8 @@ shardcached_handle_admin_request(http_worker_t *wrk, struct mg_connection *conn,
     }
 }
 
+#define MG_REQUEST_PROCESSED 1
+
 typedef struct {
     http_worker_t *wrk;
     struct mg_connection *conn;
@@ -307,7 +309,7 @@ shardcached_handle_get_request(http_worker_t *wrk, struct mg_connection *conn, c
         inet_aton(conn->remote_ip, &remote_addr);
         if (shcd_acl_eval(wrk->acl, method, key, remote_addr.s_addr) != SHCD_ACL_ACTION_ALLOW) {
             mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
-            return MG_REQUEST_PROCESSED;
+            return MG_TRUE;
         }
     }
 
@@ -345,7 +347,7 @@ shardcached_handle_get_request(http_worker_t *wrk, struct mg_connection *conn, c
                             mg_printf(conn, "HTTP/1.0 304 Not Modified\r\nContent-Length: 12\r\n\r\nNot Modified");
                             if (value)
                                 free(value);
-                            return MG_REQUEST_PROCESSED;
+                            return MG_TRUE;
                         }
                     }
                 } else if (strcasecmp(hdr_name, "If-Unmodified-Since") == 0) {
@@ -355,7 +357,7 @@ shardcached_handle_get_request(http_worker_t *wrk, struct mg_connection *conn, c
                             mg_printf(conn, "HTTP/1.0 412 Precondition Failed\r\nContent-Length: 19\r\n\r\nPrecondition Failed");
                             if (value)
                                 free(value);
-                            return MG_REQUEST_PROCESSED;
+                            return MG_TRUE;
                         }
 
                     }
@@ -381,7 +383,6 @@ shardcached_handle_get_request(http_worker_t *wrk, struct mg_connection *conn, c
         st->wrk = wrk;
         st->conn = conn;
         st->mtype = mtype;
-        st->req_status = MG_REQUEST_CALL_AGAIN;
         pthread_mutex_init(&st->slock, NULL);
         st->sbuf = fbuf_create(0);
 
@@ -391,15 +392,15 @@ shardcached_handle_get_request(http_worker_t *wrk, struct mg_connection *conn, c
             pthread_mutex_destroy(&st->slock);
             fbuf_free(st->sbuf);
             free(st);
-            return MG_REQUEST_PROCESSED;
+            return MG_TRUE;
         }
 
         conn->connection_param = st;
 
-        return MG_REQUEST_CALL_AGAIN;
+        return MG_MORE;
     }
 
-    return MG_REQUEST_PROCESSED;
+    return MG_TRUE;
 }
 
 static void
@@ -471,8 +472,11 @@ shardcached_http_close_handler(struct mg_connection *conn)
 }
 
 static int
-shardcached_request_handler(struct mg_connection *conn)
+shardcached_request_handler(struct mg_connection *conn, enum mg_event event)
 {
+    if (event == MG_CLOSE && conn->connection_param)
+        return shardcached_http_close_handler(conn);
+
     if (conn->connection_param) {
         connection_status *st = (connection_status *)conn->connection_param;
         int status = st->req_status;
@@ -486,87 +490,91 @@ shardcached_request_handler(struct mg_connection *conn)
             fbuf_free(st->sbuf);
             pthread_mutex_destroy(&st->slock);
             free(st);
+            return MG_TRUE;
         }
-        return status;
+        return MG_MORE;
     }
 
-    http_worker_t *wrk = conn->server_param;
-    
-    char *key = (char *)conn->uri;
+    if (event == MG_REQUEST) {
+        http_worker_t *wrk = conn->server_param;
+        
+        char *key = (char *)conn->uri;
 
-    int basepath_len = strlen(wrk->basepath);
-    int baseadminpath_len = strlen(wrk->adminpath);
-    int basepaths_differ = (basepath_len != baseadminpath_len || strcmp(wrk->basepath, wrk->adminpath) != 0);
-    int is_adminpath = 0;
+        int basepath_len = strlen(wrk->basepath);
+        int baseadminpath_len = strlen(wrk->adminpath);
+        int basepaths_differ = (basepath_len != baseadminpath_len || strcmp(wrk->basepath, wrk->adminpath) != 0);
+        int is_adminpath = 0;
 
-    ATOMIC_INCREMENT(shcd_active_requests);
+        ATOMIC_INCREMENT(shcd_active_requests);
 
-    while (*key == '/' && *key)
-        key++;
+        while (*key == '/' && *key)
+            key++;
 
-    if (basepath_len || baseadminpath_len) {
-        if (basepath_len && strncmp(key, wrk->basepath, basepath_len) == 0 &&
-            strlen(key) > basepath_len && key[basepath_len] == '/')
-        {
-            key += basepath_len + 1;
-            while (*key == '/' && *key)
-                key++;
+        if (basepath_len || baseadminpath_len) {
+            if (basepath_len && strncmp(key, wrk->basepath, basepath_len) == 0 &&
+                strlen(key) > basepath_len && key[basepath_len] == '/')
+            {
+                key += basepath_len + 1;
+                while (*key == '/' && *key)
+                    key++;
+            }
+            else if (basepaths_differ && baseadminpath_len &&
+                     strncmp(key, wrk->adminpath, baseadminpath_len) == 0 &&
+                     strlen(key) > baseadminpath_len && key[baseadminpath_len] == '/')
+            {
+                is_adminpath = 1;
+                key += baseadminpath_len + 1;
+                while (*key == '/' && *key)
+                    key++;
+            }
+            else
+            {
+                SHC_DEBUG("Out-of-scope uri : %s", conn->uri);
+                mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
+                ATOMIC_DECREMENT(shcd_active_requests);
+                return MG_REQUEST_PROCESSED;
+            }
         }
-        else if (basepaths_differ && baseadminpath_len &&
-                 strncmp(key, wrk->adminpath, baseadminpath_len) == 0 &&
-                 strlen(key) > baseadminpath_len && key[baseadminpath_len] == '/')
-        {
-            is_adminpath = 1;
-            key += baseadminpath_len + 1;
-            while (*key == '/' && *key)
-                key++;
-        }
-        else
-        {
-            SHC_DEBUG("Out-of-scope uri : %s", conn->uri);
-            mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
+
+        if (*key == 0) {
+            mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length 9\r\n\r\nNot Found");
             ATOMIC_DECREMENT(shcd_active_requests);
             return MG_REQUEST_PROCESSED;
         }
-    }
 
-    if (*key == 0) {
-        mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length 9\r\n\r\nNot Found");
-        ATOMIC_DECREMENT(shcd_active_requests);
-        return MG_REQUEST_PROCESSED;
-    }
+        // if baseadminpath is not defined or it's the same as basepath,
+        // we need to check for the "special" admin keys and handle them differently
+        // (in such cases the labels __stats__, __index__ and __health__ become reserved
+        // and can't be used as keys from the http interface)
+        if (is_adminpath || ((!baseadminpath_len || !basepaths_differ) &&
+            (strcmp(key, "__stats__") == 0 || strcmp(key, "__index__") == 0 || strcmp(key, "__health__") == 0)))
+        {
+            if (strncasecmp(conn->request_method, "GET", 3) == 0)
+                shardcached_handle_admin_request(wrk, conn, key, 0);
+            else
+                mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length 9\r\n\r\nForbidden");
+            ATOMIC_DECREMENT(shcd_active_requests);
+            return MG_REQUEST_PROCESSED;
 
-    // if baseadminpath is not defined or it's the same as basepath,
-    // we need to check for the "special" admin keys and handle them differently
-    // (in such cases the labels __stats__, __index__ and __health__ become reserved
-    // and can't be used as keys from the http interface)
-    if (is_adminpath || ((!baseadminpath_len || !basepaths_differ) &&
-        (strcmp(key, "__stats__") == 0 || strcmp(key, "__index__") == 0 || strcmp(key, "__health__") == 0)))
-    {
+        }
+
+        // handle the actual GET/PUT/DELETE request
         if (strncasecmp(conn->request_method, "GET", 3) == 0)
-            shardcached_handle_admin_request(wrk, conn, key, 0);
+            return shardcached_handle_get_request(wrk, conn, key, 0);
+        else if (strncasecmp(conn->request_method, "HEAD", 4) == 0)
+            return shardcached_handle_get_request(wrk, conn, key, 1);
+        else if (strncasecmp(conn->request_method, "DELETE", 6) == 0)
+            shardcached_handle_delete_request(wrk, conn, key);
+        else if (strncasecmp(conn->request_method, "PUT", 3) == 0)
+            shardcached_handle_put_request(wrk, conn, key);
         else
-            mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length 9\r\n\r\nForbidden");
-        ATOMIC_DECREMENT(shcd_active_requests);
-        return MG_REQUEST_PROCESSED;
+            mg_printf(conn, "HTTP/1.0 405 Method Not Allowed\r\nContent-Length: 11\r\n\r\nNot Allowed");
 
+
+        ATOMIC_DECREMENT(shcd_active_requests);
     }
 
-    // handle the actual GET/PUT/DELETE request
-    if (strncasecmp(conn->request_method, "GET", 3) == 0)
-        return shardcached_handle_get_request(wrk, conn, key, 0);
-    else if (strncasecmp(conn->request_method, "HEAD", 4) == 0)
-        return shardcached_handle_get_request(wrk, conn, key, 1);
-    else if (strncasecmp(conn->request_method, "DELETE", 6) == 0)
-        shardcached_handle_delete_request(wrk, conn, key);
-    else if (strncasecmp(conn->request_method, "PUT", 3) == 0)
-        shardcached_handle_put_request(wrk, conn, key);
-    else
-        mg_printf(conn, "HTTP/1.0 405 Method Not Allowed\r\nContent-Length: 11\r\n\r\nNot Allowed");
-
-
-    ATOMIC_DECREMENT(shcd_active_requests);
-    return MG_REQUEST_PROCESSED;
+    return MG_TRUE;
 }
 
 
@@ -603,7 +611,7 @@ shcd_http_create(shardcache_t *cache,
 
         http_worker_t *wrk = calloc(1, sizeof(http_worker_t));
 
-        wrk->server = mg_create_server(wrk);
+        wrk->server = mg_create_server(wrk, shardcached_request_handler);
         if (!wrk->server) {
             SHC_ERROR("Can't start mongoose server");
             shcd_http_destroy(http);
@@ -638,9 +646,6 @@ shcd_http_create(shardcache_t *cache,
                 }
             }
         }
-
-        mg_set_request_handler(wrk->server, shardcached_request_handler);
-        mg_set_http_close_handler(wrk->server, shardcached_http_close_handler);
 
         TAILQ_INSERT_TAIL(&http->workers, wrk, next);
         if (pthread_create(&wrk->th, NULL, shcd_http_run, wrk) != 0) {
