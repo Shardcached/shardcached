@@ -477,19 +477,21 @@ shardcached_request_handler(struct mg_connection *conn, enum mg_event event)
     if (event == MG_CLOSE && conn->connection_param)
         return shardcached_http_close_handler(conn);
 
-    if (conn->connection_param) {
+    if (event == MG_POLL) {
         connection_status *st = (connection_status *)conn->connection_param;
-        int status = st->req_status;
-        int len = fbuf_used(st->sbuf);
-        if (len) {
-            mg_write(conn, fbuf_data(st->sbuf), len);
-            fbuf_remove(st->sbuf, len);
-        } else if (status == MG_REQUEST_PROCESSED) {
-            conn->connection_param = NULL;
-            fbuf_free(st->sbuf);
-            pthread_mutex_destroy(&st->slock);
-            free(st);
-            return MG_TRUE;
+        if (st) {
+            int status = st->req_status;
+            int len = fbuf_used(st->sbuf);
+            if (len) {
+                mg_write(conn, fbuf_data(st->sbuf), len);
+                fbuf_remove(st->sbuf, len);
+            } else if (status == MG_REQUEST_PROCESSED) {
+                conn->connection_param = NULL;
+                fbuf_free(st->sbuf);
+                pthread_mutex_destroy(&st->slock);
+                free(st);
+                return MG_TRUE;
+            }
         }
         return MG_MORE;
     }
@@ -531,14 +533,14 @@ shardcached_request_handler(struct mg_connection *conn, enum mg_event event)
                 SHC_DEBUG("Out-of-scope uri : %s", conn->uri);
                 mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
                 ATOMIC_DECREMENT(shcd_active_requests);
-                return MG_REQUEST_PROCESSED;
+                return MG_TRUE;
             }
         }
 
         if (*key == 0) {
             mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length 9\r\n\r\nNot Found");
             ATOMIC_DECREMENT(shcd_active_requests);
-            return MG_REQUEST_PROCESSED;
+            return MG_TRUE;
         }
 
         // if baseadminpath is not defined or it's the same as basepath,
@@ -553,7 +555,7 @@ shardcached_request_handler(struct mg_connection *conn, enum mg_event event)
             else
                 mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length 9\r\n\r\nForbidden");
             ATOMIC_DECREMENT(shcd_active_requests);
-            return MG_REQUEST_PROCESSED;
+            return MG_TRUE;
 
         }
 
