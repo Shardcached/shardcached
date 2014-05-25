@@ -26,7 +26,6 @@ NOTE: Almost all options can be controlled/overridden via the cmdline,
 ===============================================================================================================================
 
 ```
-Configuring 'nodes' is mandatory!
 Usage: ./shardcached [OPTION]...
 Version: 0.16 (libshardcache: 0.21)
 Possible options:
