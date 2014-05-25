@@ -26,13 +26,15 @@ NOTE: Almost all options can be controlled/overridden via the cmdline,
 ===============================================================================================================================
 
 ```
+Configuring 'nodes' is mandatory!
 Usage: ./shardcached [OPTION]...
-Version: 0.12 (libshardcache: 0.14)
+Version: 0.16 (libshardcache: 0.21)
 Possible options:
     -a <access_log_file>  the path where to store the access_log file (defaults to './shardcached_access.log')
     -c <config_file>      the config file to load
     -d <plugins_path>     the path where to look for storage plugins (defaults to './')
     -f                    run in foreground
+    -F                    force caching
     -H                    disable the HTTP frontend
     -i <interval>         change the time interval (in seconds) used to report internal stats via syslog (defaults to '0')
     -l <ip_address:port>  ip_address:port where to listen for incoming http connections
@@ -45,6 +47,7 @@ Possible options:
     -n <nodes>            list of nodes participating in the shardcache in the form : 'label:address:port,label2:address2:port2'
     -N                    no storage subsystem, use only the internal libshardcache volatile storage
     -m me                 the label of this node, to identify it among the ones participating in the shardcache
+    -P <pipelining_max>   the maximum amount of requests to handle in parallel while still serving a response (defaults to: 64)
     -S                    shared secret used for message signing (defaults to : '')
     -s                    cache size in bytes (defaults to : '536870912')
     -T <tcp_timeout>      tcp timeout (in milliseconds) used for connections opened by libshardcache (defaults to '5000')
