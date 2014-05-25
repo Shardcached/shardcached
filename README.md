@@ -119,6 +119,8 @@ iomux_run_timeout_low = 0                      ; Sets the low timeout (in micros
 iomux_run_timeout_high = 0                     ; Sets the high timeout (in microsecs) which will be passed to iomux_run() calls
                                                ; by both the listener and the expirer
                                                ; (optional, a 0 value will make libshardcache use the compile-time default)
+pipelining_max = 64                            ; maximum number of requests to process ahead when pipelining
+                                               ; (if omitted, the libshardcache compiled-in default will be used)
 secret = default                               ; Shared secret used for message signing (optional, defaults to 'default') 
 
 [http]
@@ -135,7 +137,7 @@ acl_default = allow                            ; Default behavior for paths not 
 __(stats|index)__  = deny:*:*
 .*                 = deny:PUT:*
 .*                 = deny:DELETE:*
-.*                 = allow:*:82.173.134.166/32
+.*                 = allow:*:192.168.1.123/32
 .*                 = allow:*:127.0.0.1/32
 
 
@@ -156,4 +158,5 @@ csv      = text/csv
 css      = text/css
 mpg      = video/mpeg
 mp4      = video/mp4
+
 ```
