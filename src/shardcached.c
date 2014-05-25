@@ -33,7 +33,7 @@
 #include "storage.h"
 #include "ini.h"
 
-#define SHARDCACHED_VERSION "0.15"
+#define SHARDCACHED_VERSION "0.16"
 
 #define SHARDCACHED_ADDRESS_DEFAULT "4321"
 #define SHARDCACHED_LOGLEVEL_DEFAULT 0
@@ -100,7 +100,7 @@ typedef struct {
     int expire_time;
     int iomux_run_timeout_low;
     int iomux_run_timeout_high;
-    
+    int pipelining_max;
 } shardcached_config_t;
 
 static shardcached_config_t config = {
@@ -135,6 +135,7 @@ static shardcached_config_t config = {
     .expire_time = 0,
     .iomux_run_timeout_low = 0,
     .iomux_run_timeout_high = 0,
+    .pipelining_max = SHARDCACHE_SERVING_LOOK_AHEAD_DEFAULT,
     .pidfile = SHARDCACHED_PIDFILE_DEFAULT
 };
 
@@ -167,6 +168,7 @@ static void usage(char *progname, int rc, char *msg, ...)
            "    -n <nodes>            list of nodes participating in the shardcache in the form : 'label:address:port,label2:address2:port2'\n"
            "    -N                    no storage subsystem, use only the internal libshardcache volatile storage\n"
            "    -m me                 the label of this node, to identify it among the ones participating in the shardcache\n"
+           "    -P <pipelining_max>   the maximum amount of requests to handle in parallel while still serving a response (defaults to: %d)\n"
            "    -S                    shared secret used for message signing (defaults to : '%s')\n"
            "    -s                    cache size in bytes (defaults to : '%d')\n"
            "    -T <tcp_timeout>      tcp timeout (in milliseconds) used for connections opened by libshardcache (defaults to '%d')\n"
@@ -198,6 +200,7 @@ static void usage(char *progname, int rc, char *msg, ...)
            , SHARDCACHE_EXPIRE_TIME_DEFAULT
            , SHARDCACHE_IOMUX_RUN_TIMEOUT_LOW
            , SHARDCACHE_IOMUX_RUN_TIMEOUT_HIGH
+           , SHARDCACHE_SERVING_LOOK_AHEAD_DEFAULT
            , SHARDCACHED_SECRET_DEFAULT
            , SHARDCACHED_CACHE_SIZE_DEFAULT
            , SHARDCACHE_TCP_TIMEOUT_DEFAULT
@@ -527,6 +530,10 @@ int config_handler(void *user,
         {
             config->iomux_run_timeout_high = strtol(value, NULL, 10);
         }
+        else if (strcmp(name, "pipelining_max") == 0)
+        {
+            config->pipelining_max = strtol(value, NULL, 10);
+        }
         else if (strcmp(name, "force_caching") == 0)
         {
             if (!parse_boolean_config_param(&config->force_caching, name, value, 0))
@@ -773,6 +780,8 @@ void parse_cmdline(int argc, char **argv)
             case 'N':
                 config.nostorage = 1;
                 break;
+            case 'P':
+                config.pipelining_max = strtol(optarg, NULL, 10);
             case 'r':
                 config.iomux_run_timeout_low = strtol(optarg, NULL, 10);
                 break;
@@ -859,7 +868,7 @@ int main(int argc, char **argv)
     if (cfgfile) {
         int rc = ini_parse(cfgfile, config_handler, (void *)&config);
         if (rc != 0) {
-            usage(argv[0], -2, "Can't parse configuration file %s (line %d)\n",
+            usage(argv[0], -2, "Can't parse configuration file %s (line %d)",
                     cfgfile, rc);
         }
     }
@@ -867,13 +876,20 @@ int main(int argc, char **argv)
     // options provided on cmdline override those defined in the config file
     parse_cmdline(argc, argv);
 
-    if (!config.num_nodes || !config.nodes) {
+    if (!config.num_nodes || !config.nodes)
         usage(argv[0], -2, "Configuring 'nodes' is mandatory!");
-    }
 
-    if (!config.me[0]) {
+    if (!config.me[0])
         usage(argv[0], -2, "Configuring 'me' is mandatory!");
-    }
+
+    if (config.pipelining_max < 0)
+        usage(argv[0], -2, "pipelining_max MUST be a positive integer");
+
+    if (config.iomux_run_timeout_low < 0)
+        usage(argv[0], -2, "iomux_run_timeout_low MUST be 0 or a positive integer");
+
+    if (config.iomux_run_timeout_high < 0)
+        usage(argv[0], -2, "iomux_run_timeout_high MUST be 0 or a positive integer");
 
     shardcache_t *cache = NULL;
     shcd_storage_t *st = NULL;
@@ -955,6 +971,7 @@ int main(int argc, char **argv)
     shardcache_expire_time(cache, config.expire_time);
     shardcache_iomux_run_timeout_low(cache, config.iomux_run_timeout_low);
     shardcache_iomux_run_timeout_high(cache, config.iomux_run_timeout_high);
+    shardcache_serving_look_ahead(cache, config.pipelining_max);
 
     if (config.tcp_timeout > 0)
         shardcache_tcp_timeout(cache, config.tcp_timeout);
