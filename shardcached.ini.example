@@ -33,6 +33,9 @@ force_caching = no                             ; Always cache remote items inste
 tcp_timeout = 0                                ; Set the tcp timeout for all the outgoing connections
                                                ; (optional, a 0 value will make libshardcache use the compile-time default)
                                                ; (if set to 0 or omitted the libshardcache default timeout will be used)
+conn_expire_time = 0                           ; Set the connection expiration time in the pool, before triggering a NOOP to check connection validity.
+                                               ; (optional, a 0 value will make libshardcache use the compile-time default)
+                                               ; (if set to 0 or omitted the libshardcache default timeout will be used)
 lazy_expiration = no                           ; Enable lazy expiration (optional, defaults to 'no')
 expire_time = 0                                ; Sets the global expiration time for cached items (optional, defaults to 0, items will never expire
                                                ; and will be removed from the cache only if explicitly/naturally evicted)

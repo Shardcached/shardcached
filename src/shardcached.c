@@ -102,7 +102,7 @@ typedef struct {
     int pipelining_max;
 
     // connection pool NOOP verification timeout
-    time_t conn_noop_timer;
+    time_t conn_expire_time;
 } shardcached_config_t;
 
 static shardcached_config_t config = {
@@ -139,7 +139,7 @@ static shardcached_config_t config = {
     .iomux_run_timeout_high = 0,
     .pipelining_max = SHARDCACHE_SERVING_LOOK_AHEAD_DEFAULT,
     .pidfile = SHARDCACHED_PIDFILE_DEFAULT,
-    .conn_noop_timer = SHARDCACHE_CONNECTION_EXPIRE_DEFAULT
+    .conn_expire_time = SHARDCACHE_CONNECTION_EXPIRE_DEFAULT
 };
 
 static void usage(char *progname, int rc, char *msg, ...)
@@ -539,7 +539,7 @@ int config_handler(void *user,
         }
         else if (strcmp(name, "conn_expire_time") == 0)
         {
-            config->conn_noop_timer = strtol(value, NULL, 10);
+            config->conn_expire_time = strtol(value, NULL, 10);
         }
         else if (strcmp(name, "cache_size") == 0)
         {
@@ -720,7 +720,7 @@ void parse_cmdline(int argc, char **argv)
                         sizeof(config.plugins_dir), "%s", optarg);
                 break;
             case 'e':
-                config.conn_noop_timer = strtol(optarg, NULL, 10);
+                config.conn_expire_time = strtol(optarg, NULL, 10);
                 break;
             case 'E':
                 config.expire_time = strtol(optarg, NULL, 10);
@@ -968,8 +968,8 @@ int main(int argc, char **argv)
     if (config.tcp_timeout > 0)
         shardcache_tcp_timeout(cache, config.tcp_timeout);
 
-    if (config.conn_noop_timer > 0)
-        shardcache_conn_expire_time(cache, config.conn_noop_timer);
+    if (config.conn_expire_time > 0)
+        shardcache_conn_expire_time(cache, config.conn_expire_time);
 
     if (config.nohttp) {
         SHC_NOTICE("HTTP subsystem has been administratively disabled");
