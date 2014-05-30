@@ -48,11 +48,10 @@
 #define SHARDCACHED_PLUGINS_DIR_DEFAULT "./"
 #define SHARDCACHED_ACCESS_LOG_DEFAULT "./shardcached_access.log"
 #define SHARDCACHED_PIDFILE_DEFAULT NULL
+#define SHARDCACHE_CONNECTION_EXPIRE_DEFAULT 30000 // (in millisecs)
 
 #define SHARDCACHED_USERAGENT_SIZE_THRESHOLD 16
 #define SHARDCACHED_MAX_SHARDS 1024
-
-#define ADDR_REGEXP "^([a-z0-9_\\.\\-]+|\\*)(:[0-9]+)?$"
 
 static pthread_cond_t exit_cond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t exit_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -290,27 +289,6 @@ static void shardcached_run(shardcache_t *cache, uint32_t stats_interval)
             pthread_mutex_unlock(&exit_lock);
         }
     }
-}
-
-static int check_address_string(char *str)
-{
-    regex_t addr_regexp;
-    int rc = regcomp(&addr_regexp, ADDR_REGEXP, REG_EXTENDED|REG_ICASE);
-    if (rc != 0) {
-        char errbuf[1024];
-        regerror(rc, &addr_regexp, errbuf, sizeof(errbuf));
-        SHC_ERROR("Can't compile regexp %s: %s\n", ADDR_REGEXP, errbuf);
-        return -1;
-    }
-
-    int matched = regexec(&addr_regexp, str, 0, NULL, 0);
-    regfree(&addr_regexp);
-
-    if (matched != 0) {
-        return -1;
-    }
-
-    return 0;
 }
 
 int config_acl(char *pattern, char *aclstr)
@@ -559,6 +537,10 @@ int config_handler(void *user,
         {
             config->tcp_timeout = strtol(value, NULL, 10);
         }
+        else if (strcmp(name, "conn_expire_time") == 0)
+        {
+            config->conn_noop_timer = strtol(value, NULL, 10);
+        }
         else if (strcmp(name, "cache_size") == 0)
         {
             config->cache_size = strtol(value, NULL, 10);
@@ -653,18 +635,18 @@ static int parse_nodes_string(char *str, int migration)
     while (s && *s) {
         char *tok = strsep(&s, ",");
         if(tok) {
-            char *label = strsep(&tok, ":");
-            char *addr = tok;
-            if (!addr || check_address_string(addr) != 0) {
-                SHC_ERROR("Bad address format for peer: '%s'", addr);
+            shardcache_node_t *node = shardcache_node_create_from_string(tok);
+            if (node) {
+                num_nodes++;
+                nodes = realloc(nodes, num_nodes * sizeof(shardcache_node_t *));
+                nodes[num_nodes - 1] = shardcache_node_create_from_string(tok);
+            } else {
+                SHC_ERROR("Bad address format for peer: '%s'", tok);
                 free(copy);
                 if (nodes)
                     shardcache_free_nodes(nodes, num_nodes);
                 return -1;
             }
-            num_nodes++;
-            nodes = realloc(nodes, num_nodes * sizeof(shardcache_node_t *));
-            nodes[num_nodes - 1] = shardcache_node_create((char *)label, (char **)&addr, 1);
         } 
     }
     free(copy);
