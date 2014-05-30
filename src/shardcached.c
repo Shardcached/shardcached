@@ -99,6 +99,9 @@ typedef struct {
     int iomux_run_timeout_low;
     int iomux_run_timeout_high;
     int pipelining_max;
+
+    // connection pool NOOP verification timeout
+    time_t conn_noop_timer;
 } shardcached_config_t;
 
 static shardcached_config_t config = {
@@ -134,7 +137,8 @@ static shardcached_config_t config = {
     .iomux_run_timeout_low = 0,
     .iomux_run_timeout_high = 0,
     .pipelining_max = SHARDCACHE_SERVING_LOOK_AHEAD_DEFAULT,
-    .pidfile = SHARDCACHED_PIDFILE_DEFAULT
+    .pidfile = SHARDCACHED_PIDFILE_DEFAULT,
+    .conn_noop_timer = SHARDCACHE_CONNECTION_EXPIRE_DEFAULT
 };
 
 static void usage(char *progname, int rc, char *msg, ...)
@@ -159,6 +163,7 @@ static void usage(char *progname, int rc, char *msg, ...)
            "    -l <ip_address:port>  ip_address:port where to listen for incoming http connections\n"
            "    -L                    enable lazy expiration\n"
            "    -E <expire_time>      set the expiration time for cached items (defaults to: %d)\n"
+           "    -e <conn_expire_time> the expiration time for a connection in the pool to trigger a NOOP (defaults to %d)\n"
            "    -r <mux_timeout_low>  set the low timeout passed to iomux_run() calls (in microsecs, defaults to: %d)\n"
            "    -R <mux_timeout_high> set the high timeout pssed to iomux_run() calls (in microsecs, defaults to: %d)\n"
            "    -b                    HTTP url basepath (optional, defaults to '')\n"
@@ -196,6 +201,7 @@ static void usage(char *progname, int rc, char *msg, ...)
            , SHARDCACHED_PLUGINS_DIR_DEFAULT
            , SHARDCACHED_STATS_INTERVAL_DEFAULT
            , SHARDCACHE_EXPIRE_TIME_DEFAULT
+           , SHARDCACHE_CONNECTION_EXPIRE_DEFAULT
            , SHARDCACHE_IOMUX_RUN_TIMEOUT_LOW
            , SHARDCACHE_IOMUX_RUN_TIMEOUT_HIGH
            , SHARDCACHE_SERVING_LOOK_AHEAD_DEFAULT
@@ -654,6 +660,7 @@ void parse_cmdline(int argc, char **argv)
         {"basepath", 2, 0, 'b'},
         {"baseadminpath", 2, 0, 'B'},
         {"plugins_directory", 2, 0, 'd'},
+        {"conn_expire_time", 2, 0, 'e'},
         {"expire_time", 2, 0, 'E'},
         {"foreground", 0, 0, 'f'},
         {"stats_interval", 2, 0, 'i'},
@@ -681,7 +688,7 @@ void parse_cmdline(int argc, char **argv)
     };
 
     char c;
-    while ((c = getopt_long (argc, argv, "a:b:B:c:d:E:fFg:hHi:l:Lm:n:Np:r:R:s:S:t:T:o:u:vVw:x:?",
+    while ((c = getopt_long (argc, argv, "a:b:B:c:d:e:E:fFg:hHi:l:Lm:n:Np:r:R:s:S:t:T:o:u:vVw:x:?",
                              long_options, &option_index)))
     {
         if (c == -1) {
@@ -706,6 +713,9 @@ void parse_cmdline(int argc, char **argv)
             case 'd':
                 snprintf(config.plugins_dir,
                         sizeof(config.plugins_dir), "%s", optarg);
+                break;
+            case 'e':
+                config.conn_noop_timer = strtol(optarg, NULL, 10);
                 break;
             case 'E':
                 config.expire_time = strtol(optarg, NULL, 10);
@@ -952,6 +962,9 @@ int main(int argc, char **argv)
 
     if (config.tcp_timeout > 0)
         shardcache_tcp_timeout(cache, config.tcp_timeout);
+
+    if (config.conn_noop_timer > 0)
+        shardcache_conn_expire_time(cache, config.conn_noop_timer);
 
     if (config.nohttp) {
         SHC_NOTICE("HTTP subsystem has been administratively disabled");
