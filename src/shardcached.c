@@ -639,7 +639,7 @@ static int parse_nodes_string(char *str, int migration)
             if (node) {
                 num_nodes++;
                 nodes = realloc(nodes, num_nodes * sizeof(shardcache_node_t *));
-                nodes[num_nodes - 1] = shardcache_node_create_from_string(tok);
+                nodes[num_nodes - 1] = node;
             } else {
                 SHC_ERROR("Bad address format for peer: '%s'", tok);
                 free(copy);
