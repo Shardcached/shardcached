@@ -27,7 +27,7 @@ NOTE: Almost all options can be controlled/overridden via the cmdline,
 
 ```
 Usage: ./shardcached [OPTION]...
-Version: 0.16 (libshardcache: 0.21)
+Version: 0.16 (libshardcache: 0.22)
 Possible options:
     -a <access_log_file>  the path where to store the access_log file (defaults to './shardcached_access.log')
     -c <config_file>      the config file to load
@@ -39,6 +39,7 @@ Possible options:
     -l <ip_address:port>  ip_address:port where to listen for incoming http connections
     -L                    enable lazy expiration
     -E <expire_time>      set the expiration time for cached items (defaults to: 0)
+    -e <conn_expire_time> the expiration time for a connection in the pool to trigger a NOOP (defaults to 30000)
     -r <mux_timeout_low>  set the low timeout passed to iomux_run() calls (in microsecs, defaults to: 100000)
     -R <mux_timeout_high> set the high timeout pssed to iomux_run() calls (in microsecs, defaults to: 500000)
     -b                    HTTP url basepath (optional, defaults to '')
@@ -108,6 +109,9 @@ use_persistent_connections = yes               ; Use persistent connections inst
 force_caching = no                             ; Always cache remote items instead of applying a 10% chance (optional, defaults to 'no')
                                                ; for each command sent to peers
 tcp_timeout = 0                                ; Set the tcp timeout for all the outgoing connections
+                                               ; (optional, a 0 value will make libshardcache use the compile-time default)
+                                               ; (if set to 0 or omitted the libshardcache default timeout will be used)
+conn_expire_time = 0                           ; Set the connection expiration time in the pool, before triggering a NOOP to check connection validity.
                                                ; (optional, a 0 value will make libshardcache use the compile-time default)
                                                ; (if set to 0 or omitted the libshardcache default timeout will be used)
 lazy_expiration = no                           ; Enable lazy expiration (optional, defaults to 'no')
