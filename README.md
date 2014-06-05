@@ -27,7 +27,7 @@ NOTE: Almost all options can be controlled/overridden via the cmdline,
 
 ```
 Usage: ./shardcached [OPTION]...
-Version: 0.16 (libshardcache: 0.22)
+Version: 0.17 (libshardcache: 0.22)
 Possible options:
     -a <access_log_file>  the path where to store the access_log file (defaults to './shardcached_access.log')
     -c <config_file>      the config file to load
