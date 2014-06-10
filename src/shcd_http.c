@@ -485,7 +485,8 @@ shardcached_request_handler(struct mg_connection *conn, enum mg_event event)
             if (len) {
                 mg_write(conn, fbuf_data(st->sbuf), len);
                 fbuf_remove(st->sbuf, len);
-            } else if (status == MG_REQUEST_PROCESSED) {
+            }
+            if (status == MG_REQUEST_PROCESSED) {
                 conn->connection_param = NULL;
                 fbuf_free(st->sbuf);
                 pthread_mutex_destroy(&st->slock);
