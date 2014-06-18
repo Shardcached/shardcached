@@ -33,7 +33,7 @@
 #include "storage.h"
 #include "ini.h"
 
-#define SHARDCACHED_VERSION "0.17"
+#define SHARDCACHED_VERSION "0.18"
 
 #define SHARDCACHED_ADDRESS_DEFAULT "4321"
 #define SHARDCACHED_LOGLEVEL_DEFAULT 0
@@ -693,7 +693,7 @@ void parse_cmdline(int argc, char **argv)
     };
 
     char c;
-    while ((c = getopt_long (argc, argv, "a:b:B:c:d:e:E:fFg:hHi:l:Lm:n:Np:r:R:s:S:t:T:o:u:vVw:x:?",
+    while ((c = getopt_long (argc, argv, "a:b:B:c:d:e:E:fFg:hHi:l:Lm:n:Np:P:r:R:s:S:t:T:o:u:vVw:x:?",
                              long_options, &option_index)))
     {
         if (c == -1) {
@@ -774,6 +774,7 @@ void parse_cmdline(int argc, char **argv)
                 break;
             case 'P':
                 config.pipelining_max = strtol(optarg, NULL, 10);
+                break;
             case 'r':
                 config.iomux_run_timeout_low = strtol(optarg, NULL, 10);
                 break;
