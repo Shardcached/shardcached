@@ -305,15 +305,14 @@ storage_redis_destroy(storage_redis_t *st)
 }
 
 void
-storage_destroy(shardcache_storage_t *storage)
+storage_destroy(void *priv)
 {
-    storage_redis_t *st = (storage_redis_t *)storage->priv;
+    storage_redis_t *st = (storage_redis_t *)priv;
     storage_redis_destroy(st);
-    free(storage);
 }
 
-shardcache_storage_t *
-storage_create(const char **options)
+int
+storage_init(shardcache_storage_t *storage, const char **options)
 {
     storage_redis_t *st = calloc(1, sizeof(storage_redis_t));
  
@@ -336,11 +335,10 @@ storage_create(const char **options)
         redis_connection_t *c = &st->connections[i];
         if (st_init_connection(st, c) != 0) {
             storage_redis_destroy(st);
-            return NULL;
+            return -1;
         }
     }
 
-    shardcache_storage_t *storage = calloc(1, sizeof(shardcache_storage_t));
     storage->fetch  = st_fetch;
     storage->store  = st_store;
     storage->remove = st_remove;
@@ -348,7 +346,7 @@ storage_create(const char **options)
     storage->index  = st_index;
     storage->priv = st;
 
-    return storage;
+    return 0;
 }
 
 

@@ -708,15 +708,14 @@ storage_mysql_destroy(storage_mysql_t *st)
 }
 
 void
-storage_destroy(shardcache_storage_t *storage)
+storage_destroy(void *priv)
 {
-    storage_mysql_t *st = (storage_mysql_t *)storage->priv;
+    storage_mysql_t *st = (storage_mysql_t *)priv;
     storage_mysql_destroy(st);
-    free(storage);
 }
 
-shardcache_storage_t *
-storage_create(const char **options)
+int
+storage_init(shardcache_storage_t *storage, const char **options)
 {
     storage_mysql_t *st = calloc(1, sizeof(storage_mysql_t));
  
@@ -752,11 +751,10 @@ storage_create(const char **options)
         db_connection_t *dbc = &st->dbconnections[i];
         if (st_init_dbconnection(st, dbc) != 0) {
             storage_mysql_destroy(st);
-            return NULL;
+            return -1;
         }
     }
 
-    shardcache_storage_t *storage = calloc(1, sizeof(shardcache_storage_t));
     storage->fetch  = st_fetch;
     storage->store  = st_store;
     storage->remove = st_remove;
@@ -764,7 +762,7 @@ storage_create(const char **options)
     storage->index  = st_index;
     storage->priv = st;
 
-    return storage;
+    return 0;
 }
 
 

@@ -7,11 +7,11 @@
 
 #include <dlfcn.h>
 
-typedef void (*shardcache_storage_destroyer_t)(shardcache_storage_t *);
+typedef void (*shardcache_storage_destroyer_t)(void *);
 
 struct shcd_storage_s
 {
-    shardcache_storage_t *storage;
+    shardcache_storage_t storage;
     shardcache_storage_destroyer_t destroyer;
     void *handle;
 };
@@ -36,15 +36,18 @@ shcd_storage_init(char *storage_type, char *options_string, char *plugins_dir)
     }
     storage_options[optidx++] = str;
     storage_options[optidx] = NULL;
+
     // initialize the storage layer 
+    int initialized = -1;
+    st->storage.version = SHARDCACHE_STORAGE_PLUGIN_VERSION;
     if (strcmp(storage_type, "mem") == 0) {
         // TODO - validate options
-        st->storage = storage_mem_create(storage_options);
+        initialized = storage_mem_init(&st->storage, storage_options);
         st->destroyer = storage_mem_destroy;
 
     } else if (strcmp(storage_type, "fs") == 0) {
         // TODO - validate options
-        st->storage = storage_fs_create(storage_options);
+        initialized = storage_fs_init(&st->storage, storage_options);
         st->destroyer = storage_fs_destroy;
     } else {
         char libname[1024];
@@ -57,16 +60,16 @@ shcd_storage_init(char *storage_type, char *options_string, char *plugins_dir)
             return NULL;
         }
         char *error = NULL;
-        shardcache_storage_t *(*create)(const char **options);
-        create = dlsym(st->handle, "storage_create");
-        if (!create || ((error = dlerror()) != NULL))  {
+        int (*init)(shardcache_storage_t *st, const char **options);
+        init = dlsym(st->handle, "storage_init");
+        if (!init || ((error = dlerror()) != NULL))  {
             fprintf(stderr, "%s\n", error);
             dlclose(st->handle);
             free(st);
             return NULL;
         }
 
-        void (*destroy)(shardcache_storage_t *);
+        void (*destroy)(void *);
         destroy = dlsym(st->handle, "storage_destroy");
         if (!destroy || ((error = dlerror()) != NULL))  {
             fprintf(stderr, "%s\n", error);
@@ -75,11 +78,11 @@ shcd_storage_init(char *storage_type, char *options_string, char *plugins_dir)
             return NULL;
         }
 
-        st->storage = (*create)(storage_options);
+        initialized = (*init)(&st->storage, storage_options);
         st->destroyer = destroy;
     }
-    if (!st->storage) {
-        SHC_ERROR("Can't create storage type: %s\n", storage_type);
+    if (initialized != 0) {
+        SHC_ERROR("Can't init the storage type: %s\n", storage_type);
         free(st);
         return NULL;
     }
@@ -87,12 +90,12 @@ shcd_storage_init(char *storage_type, char *options_string, char *plugins_dir)
 }
 
 shardcache_storage_t *shcd_storage_get(shcd_storage_t *st) {
-    return st->storage;
+    return &st->storage;
 }
 
 void shcd_storage_destroy(shcd_storage_t *st) {
     if (st->destroyer)
-        st->destroyer(st->storage);
+        st->destroyer(st->storage.priv);
     if (st->handle)
         dlclose(st->handle);
     free(st);

@@ -303,9 +303,9 @@ st_index(shardcache_storage_index_item_t *index, size_t isize, void *priv)
 }
 
 void
-storage_destroy(shardcache_storage_t *storage)
+storage_destroy(void *priv)
 {
-    storage_sqlite_t *st = (storage_sqlite_t *)storage->priv;
+    storage_sqlite_t *st = (storage_sqlite_t *)priv;
     sqlite3_finalize(st->select_stmt);
     sqlite3_finalize(st->insert_stmt);
     sqlite3_finalize(st->delete_stmt);
@@ -321,11 +321,10 @@ storage_destroy(shardcache_storage_t *storage)
     free(st->valuefield);
     free(st->valuesizefield);
     free(st);
-    free(storage);
 }
 
-shardcache_storage_t *
-storage_create(const char **options)
+int
+storage_init(shardcache_storage_t *storage, const char **options)
 {
     storage_sqlite_t *st = calloc(1, sizeof(storage_sqlite_t));
  
@@ -335,7 +334,7 @@ storage_create(const char **options)
     if (!st->dbfile) {
         fprintf(stderr, "the dbfile option is mandatory!\n");
         free(st);
-        return NULL;
+        return -1;
     }
 
     if (!st->dbname)
@@ -369,7 +368,7 @@ storage_create(const char **options)
         free(st->valuefield);
         free(st->valuesizefield);
         free(st);
-        return NULL;
+        return -1;
     }
 
     char create_table_sql[2048];
@@ -418,7 +417,6 @@ storage_create(const char **options)
         // TODO - Errors
     }
 
-    shardcache_storage_t *storage = calloc(1, sizeof(shardcache_storage_t));
     storage->fetch  = st_fetch;
     storage->store  = st_store;
     storage->remove = st_remove;
@@ -427,7 +425,7 @@ storage_create(const char **options)
     storage->priv = st;
 
     pthread_mutex_init(&st->lock, NULL);
-    return storage;
+    return 0;
 }
 
 

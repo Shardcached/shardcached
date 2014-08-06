@@ -325,10 +325,9 @@ storage_fs_walk_and_fill_index(char *path, hashtable_t *index)
     }
 }
 
-shardcache_storage_t *
-storage_fs_create(const char **options)
+int
+storage_fs_init(shardcache_storage_t *st, const char **options)
 {
-    shardcache_storage_t *st = calloc(1, sizeof(shardcache_storage_t));
     st->fetch  = st_fetch;
     st->store  = st_store;
     st->remove = st_remove;
@@ -373,7 +372,7 @@ storage_fs_create(const char **options)
                 if (tmp_path)
                     free(tmp_path);
                 free(st);
-                return NULL;
+                return -1;
             }
             SHC_NOTICE("Created storage path: %s", storage_path);
         }
@@ -386,7 +385,7 @@ storage_fs_create(const char **options)
             if (tmp_path)
                 free(tmp_path);
             free(st);
-            return NULL;
+            return -1;
         }
 
         storage = calloc(1, sizeof(storage_fs_t));
@@ -404,7 +403,7 @@ storage_fs_create(const char **options)
                 free(storage_path);
                 free(tmp_path);
                 free(st);
-                return NULL;
+                return -1;
             }
         }
     } else {
@@ -412,22 +411,21 @@ storage_fs_create(const char **options)
         if (tmp_path)
             free(tmp_path);
         free(st);
-        return NULL;
+        return -1;
     }
     storage->index = ht_create(1<<16, 0, free);
     storage_fs_walk_and_fill_index(storage->path, storage->index);
 
     st->priv = storage;
-    return st;
+    return 0;
 }
 
 void
-storage_fs_destroy(shardcache_storage_t *st)
+storage_fs_destroy(void *priv)
 {
-    storage_fs_t *storage = (storage_fs_t *)st->priv;
+    storage_fs_t *storage = (storage_fs_t *)priv;
     free(storage->path);
     free(storage->tmp);
     ht_destroy(storage->index);
     free(storage);
-    free(st);
 }

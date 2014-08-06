@@ -124,10 +124,9 @@ st_index(shardcache_storage_index_item_t *index, size_t isize, void *priv)
     return arg.offset;
 }
 
-shardcache_storage_t *
-storage_mem_create(const char **options)
+int
+storage_mem_init(shardcache_storage_t *st, const char **options)
 {
-    shardcache_storage_t *st = calloc(1, sizeof(shardcache_storage_t));
     st->fetch  = st_fetch;
     st->store  = st_store;
     st->remove = st_remove;
@@ -165,13 +164,12 @@ storage_mem_create(const char **options)
     hashtable_t *storage = ht_create(size, maxsize, free_item_cb);
     st->priv = storage;
     
-    return st;
+    return 0;
 }
 
 void
-storage_mem_destroy(shardcache_storage_t *st)
+storage_mem_destroy(void *priv)
 {
-    hashtable_t *storage = (hashtable_t *)st->priv;
+    hashtable_t *storage = (hashtable_t *)priv;
     ht_destroy(storage);
-    free(st);
 }
