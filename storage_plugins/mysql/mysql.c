@@ -714,6 +714,18 @@ storage_destroy(void *priv)
     storage_mysql_destroy(st);
 }
 
+static void
+st_thread_start(void *priv)
+{
+    mysql_thread_init();
+}
+
+static void
+st_thread_exit(void *priv)
+{
+    mysql_thread_end();
+}
+
 int
 storage_init(shardcache_storage_t *storage, const char **options)
 {
@@ -760,6 +772,8 @@ storage_init(shardcache_storage_t *storage, const char **options)
     storage->remove = st_remove;
     storage->count  = st_count;
     storage->index  = st_index;
+    storage->thread_start = st_thread_start;
+    storage->thread_exit = st_thread_exit;
     storage->priv = st;
 
     return 0;
