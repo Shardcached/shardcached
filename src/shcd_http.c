@@ -587,6 +587,7 @@ shcd_http_run(void *priv)
     while (!ATOMIC_READ(wrk->leave)) {
         mg_poll_server(wrk->server, 1000);
     }
+    shardcache_thread_end(wrk->cache);
     return NULL;
 }
 
@@ -656,6 +657,7 @@ shcd_http_create(shardcache_t *cache,
             shcd_http_destroy(http);
             return NULL;
         }
+        shardcache_thread_init(cache);
     }
     return http;
 };
