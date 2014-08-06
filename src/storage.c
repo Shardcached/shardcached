@@ -39,7 +39,7 @@ shcd_storage_init(char *storage_type, char *options_string, char *plugins_dir)
 
     // initialize the storage layer 
     int initialized = -1;
-    st->storage.version = SHARDCACHE_STORAGE_PLUGIN_VERSION;
+    st->storage.version = SHARDCACHE_STORAGE_API_VERSION;
     if (strcmp(storage_type, "mem") == 0) {
         // TODO - validate options
         initialized = storage_mem_init(&st->storage, storage_options);
