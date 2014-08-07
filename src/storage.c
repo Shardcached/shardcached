@@ -63,19 +63,29 @@ shcd_storage_init(char *storage_type, char *options_string, char *plugins_dir)
         int (*init)(shardcache_storage_t *st, const char **options);
         init = dlsym(st->handle, "storage_init");
         if (!init || ((error = dlerror()) != NULL))  {
-            fprintf(stderr, "%s\n", error);
-            dlclose(st->handle);
-            free(st);
-            return NULL;
+	  if(error) {
+            SHC_ERROR("%s\n", error);
+	  } else {
+	    SHC_ERROR("Unable to locate storage_init symbol\n");
+	  }
+
+	  dlclose(st->handle);
+	  free(st);
+	  return NULL;
         }
 
         void (*destroy)(void *);
         destroy = dlsym(st->handle, "storage_destroy");
         if (!destroy || ((error = dlerror()) != NULL))  {
-            fprintf(stderr, "%s\n", error);
-            dlclose(st->handle);
-            free(st);
-            return NULL;
+	  if(error) {
+	    SHC_ERROR("%s\n", error);
+	  } else {
+	    SHC_ERROR("Unable to locate storage_destroy symbol\n");
+	  }
+
+	  dlclose(st->handle);
+	  free(st);
+	  return NULL;
         }
 
         initialized = (*init)(&st->storage, storage_options);
