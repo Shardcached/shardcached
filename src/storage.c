@@ -60,32 +60,45 @@ shcd_storage_init(char *storage_type, char *options_string, char *plugins_dir)
             return NULL;
         }
         char *error = NULL;
+
+        int *version = dlsym(st->handle, "storage_version");
+        if (!version || ((error = dlerror()) != NULL)) {
+            if (error)
+                SHC_ERROR("%s", error);
+            else
+                SHC_ERROR("Can't find the symbol 'storage_version' in the loaded module");
+
+            return NULL;
+        }
+
+        if (*version != SHARDCACHE_STORAGE_API_VERSION) {
+            SHC_ERROR("The storage plugin version doesn't match (%d != %d)",
+                        version, SHARDCACHE_STORAGE_API_VERSION);
+            return NULL;
+        }
+
         int (*init)(shardcache_storage_t *st, const char **options);
         init = dlsym(st->handle, "storage_init");
         if (!init || ((error = dlerror()) != NULL))  {
-	  if(error) {
-            SHC_ERROR("%s\n", error);
-	  } else {
-	    SHC_ERROR("Unable to locate storage_init symbol\n");
-	  }
-
-	  dlclose(st->handle);
-	  free(st);
-	  return NULL;
+            if (error)
+                SHC_ERROR("%s", error);
+            else
+                SHC_ERROR("Can't find the symbol 'storage_init' in the loaded module");
+            dlclose(st->handle);
+            free(st);
+            return NULL;
         }
 
         void (*destroy)(void *);
         destroy = dlsym(st->handle, "storage_destroy");
         if (!destroy || ((error = dlerror()) != NULL))  {
-	  if(error) {
-	    SHC_ERROR("%s\n", error);
-	  } else {
-	    SHC_ERROR("Unable to locate storage_destroy symbol\n");
-	  }
-
-	  dlclose(st->handle);
-	  free(st);
-	  return NULL;
+            if (error)
+                SHC_ERROR("%s", error);
+            else
+                SHC_ERROR("Can't find the symbol 'storage_destroy' in the loaded module");
+            dlclose(st->handle);
+            free(st);
+            return NULL;
         }
 
         initialized = (*init)(&st->storage, storage_options);

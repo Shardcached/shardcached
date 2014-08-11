@@ -13,6 +13,8 @@
 #define ST_DBNAME_DEFAULT          "shardcache"
 #define ST_TABLE_DEFAULT           "storage"
 
+int storage_version = SHARDCACHE_STORAGE_API_VERSION;
+
 typedef struct {
     char *dbfile;
     char *dbname;

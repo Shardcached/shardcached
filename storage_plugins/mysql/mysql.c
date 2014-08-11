@@ -25,6 +25,8 @@
 #define ST_TABLE_DEFAULT           "storage"
 #define ST_NUM_CONNECTIONS_DEFAULT 5
 
+int storage_version = SHARDCACHE_STORAGE_API_VERSION;
+
 typedef struct {
     MYSQL      dbh;
     MYSQL_STMT *select_stmt;

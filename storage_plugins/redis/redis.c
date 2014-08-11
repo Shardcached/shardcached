@@ -18,6 +18,8 @@
 #define REDIS_HOST_DEFAULT "localhost"
 #define REDIS_NUM_CONNECTIONS_DEFAULT 5
 
+int storage_version = SHARDCACHE_STORAGE_API_VERSION;
+
 typedef struct {
     redisContext *context;
 #ifdef __MACH__
