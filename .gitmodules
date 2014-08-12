@@ -7,3 +7,9 @@
 [submodule "support/libut"]
 	path = support/libut
 	url = https://github.com/xant/libut.git
+[submodule "storage_plugins/deps/lua"]
+	path = storage_plugins/deps/lua
+	url = https://github.com/LuaDist/lua
+[submodule "storage_plugins/deps/luasql"]
+	path = storage_plugins/deps/luasql
+	url = https://github.com/keplerproject/luasql
