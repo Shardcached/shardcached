@@ -947,6 +947,7 @@ int main(int argc, char **argv)
                               st ? shcd_storage_get(st) : NULL,
                               config.secret,
                               config.num_workers,
+                              -1,
                               config.cache_size);
 
     if (!cache) {
