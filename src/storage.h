@@ -18,6 +18,7 @@ shcd_storage_t * shcd_storage_init(char *storage_type,
                                    char *plugins_dir);
 
 void shcd_storage_destroy(shcd_storage_t *st);
+void shcd_storage_reset(shcd_storage_t *st);
 
 shardcache_storage_t *shcd_storage_get(shcd_storage_t *st);
 

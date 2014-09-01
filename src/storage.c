@@ -8,11 +8,12 @@
 #include <dlfcn.h>
 
 typedef void (*shardcache_storage_destroyer_t)(void *);
-
+typedef int (*shardcache_storage_resetter_t)(void *);
 struct shcd_storage_s
 {
     shardcache_storage_t storage;
     shardcache_storage_destroyer_t destroyer;
+  shardcache_storage_resetter_t resetter;
     void *handle;
 };
 
@@ -101,8 +102,21 @@ shcd_storage_init(char *storage_type, char *options_string, char *plugins_dir)
             return NULL;
         }
 
+        int (*reset)(void *);
+        reset = dlsym(st->handle, "storage_reset");
+        if (!reset || ((error = dlerror()) != NULL))  {
+          if (error)
+            SHC_ERROR("%s", error);
+          else
+            SHC_ERROR("Can't find the symbol 'storage_reset' in the loaded module");
+          dlclose(st->handle);
+          free(st);
+          return NULL;
+        }
+        
         initialized = (*init)(&st->storage, storage_options);
         st->destroyer = destroy;
+        st->resetter = reset;
     }
     if (initialized != 0) {
         SHC_ERROR("Can't init the storage type: %s\n", storage_type);
@@ -122,4 +136,14 @@ void shcd_storage_destroy(shcd_storage_t *st) {
     if (st->handle)
         dlclose(st->handle);
     free(st);
+}
+
+void shcd_storage_reset(shcd_storage_t *st) {
+  int ret = 0;
+  SHC_DEBUG("resetting storage module (%p)", st->resetter);
+  if(st->resetter) {
+    ret = st->resetter(st->storage.priv);
+    SHC_DEBUG("reset %d connections\n", ret);
+  }
+
 }

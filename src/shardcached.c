@@ -55,6 +55,7 @@
 static pthread_cond_t exit_cond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t exit_lock = PTHREAD_MUTEX_INITIALIZER;
 static int should_exit = 0;
+static int should_reset = 0;
 static shcd_acl_t *http_acl = NULL;
 static hashtable_t *mime_types = NULL;
 
@@ -229,7 +230,16 @@ static void shardcached_do_nothing(int sig)
     SHC_DEBUG1("Signal %d received ... doing nothing\n", sig);
 }
 
-static void shardcached_run(shardcache_t *cache, uint32_t stats_interval)
+static void shardcached_reset(int sig)
+{
+  // signal running thread, but don't set terminal flag, set reset instead
+  (void)__sync_add_and_fetch(&should_reset, 1);
+  pthread_mutex_lock(&exit_lock);
+  pthread_cond_signal(&exit_cond);
+  pthread_mutex_unlock(&exit_lock);
+}
+
+static void shardcached_run(shardcache_t *cache, uint32_t stats_interval, shcd_storage_t *st)
 {
     if (stats_interval) {
         hashtable_t *prevcounters = ht_create(32, 256, free);
@@ -286,6 +296,10 @@ static void shardcached_run(shardcache_t *cache, uint32_t stats_interval)
             pthread_mutex_lock(&exit_lock);
             pthread_cond_wait(&exit_cond, &exit_lock);
             pthread_mutex_unlock(&exit_lock);
+            if(__sync_add_and_fetch(&should_reset, 0)) {
+              shcd_storage_reset(st);
+              __sync_sub_and_fetch(&should_reset, 1); // back to 0
+            }
         }
     }
 }
@@ -923,7 +937,7 @@ int main(int argc, char **argv)
         fclose(pidfile);
     }
     signal(SIGINT, shardcached_stop);
-    signal(SIGHUP, shardcached_stop);
+    signal(SIGHUP, shardcached_reset);
     signal(SIGQUIT, shardcached_stop);
     signal(SIGPIPE, shardcached_do_nothing);
 
@@ -1029,7 +1043,7 @@ int main(int argc, char **argv)
         shardcache_migration_begin(cache, config.migration_nodes, config.num_migration_nodes, 1);
 
     if (http_server || config.nohttp) {
-        shardcached_run(cache, config.stats_interval);
+      shardcached_run(cache, config.stats_interval, st);
     } else {
         SHC_ERROR("Can't start the http subsystem");
     }
