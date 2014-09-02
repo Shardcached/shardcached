@@ -326,7 +326,7 @@ storage_fs_walk_and_fill_index(char *path, hashtable_t *index)
 }
 
 int
-storage_fs_init(shardcache_storage_t *st, const char **options)
+storage_fs_init(shardcache_storage_t *st, char **options)
 {
     st->fetch  = st_fetch;
     st->store  = st_store;

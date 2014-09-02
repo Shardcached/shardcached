@@ -5,22 +5,21 @@
 #include "storage_mem.h"
 #include "storage_fs.h"
 
-#include <dlfcn.h>
-
 typedef void (*shardcache_storage_destroyer_t)(void *);
 typedef int (*shardcache_storage_resetter_t)(void *);
 struct shcd_storage_s
 {
-    shardcache_storage_t storage;
+    shardcache_storage_t *storage;
     shardcache_storage_destroyer_t destroyer;
-  shardcache_storage_resetter_t resetter;
+    shardcache_storage_resetter_t resetter;
     void *handle;
+    int internal;
 };
 
 shcd_storage_t *
 shcd_storage_init(char *storage_type, char *options_string, char *plugins_dir)
 {
-    const char *storage_options[MAX_STORAGE_OPTIONS];
+    char *storage_options[MAX_STORAGE_OPTIONS];
 
     shcd_storage_t *st = calloc(1, sizeof(shcd_storage_t));
 
@@ -40,86 +39,34 @@ shcd_storage_init(char *storage_type, char *options_string, char *plugins_dir)
 
     // initialize the storage layer 
     int initialized = -1;
-    st->storage.version = SHARDCACHE_STORAGE_API_VERSION;
     if (strcmp(storage_type, "mem") == 0) {
         // TODO - validate options
-        initialized = storage_mem_init(&st->storage, storage_options);
+        st->storage = calloc(1, sizeof(shardcache_storage_t));
+        initialized = storage_mem_init(st->storage, storage_options);
         st->destroyer = storage_mem_destroy;
-
+        st->storage->version = SHARDCACHE_STORAGE_API_VERSION;
+        st->internal = 1;
     } else if (strcmp(storage_type, "fs") == 0) {
         // TODO - validate options
-        initialized = storage_fs_init(&st->storage, storage_options);
+        st->storage = calloc(1, sizeof(shardcache_storage_t));
+        initialized = storage_fs_init(st->storage, storage_options);
         st->destroyer = storage_fs_destroy;
+        st->storage->version = SHARDCACHE_STORAGE_API_VERSION;
+        st->internal = 1;
     } else {
         char libname[1024];
         snprintf(libname, sizeof(libname), "%s/%s.storage",
                  plugins_dir, storage_type);
-        st->handle = dlopen(libname, RTLD_NOW);
-        if (!st->handle) {
-            SHC_ERROR("Unknown storage type: %s (%s)\n", storage_type, dlerror());
-            free(st);
-            return NULL;
-        }
-        char *error = NULL;
-
-        int *version = dlsym(st->handle, "storage_version");
-        if (!version || ((error = dlerror()) != NULL)) {
-            if (error)
-                SHC_ERROR("%s", error);
-            else
-                SHC_ERROR("Can't find the symbol 'storage_version' in the loaded module");
-
-            return NULL;
-        }
-
-        if (*version != SHARDCACHE_STORAGE_API_VERSION) {
-            SHC_ERROR("The storage plugin version doesn't match (%d != %d)",
-                        version, SHARDCACHE_STORAGE_API_VERSION);
-            return NULL;
-        }
-
-        int (*init)(shardcache_storage_t *st, const char **options);
-        init = dlsym(st->handle, "storage_init");
-        if (!init || ((error = dlerror()) != NULL))  {
-            if (error)
-                SHC_ERROR("%s", error);
-            else
-                SHC_ERROR("Can't find the symbol 'storage_init' in the loaded module");
-            dlclose(st->handle);
-            free(st);
-            return NULL;
-        }
-
-        void (*destroy)(void *);
-        destroy = dlsym(st->handle, "storage_destroy");
-        if (!destroy || ((error = dlerror()) != NULL))  {
-            if (error)
-                SHC_ERROR("%s", error);
-            else
-                SHC_ERROR("Can't find the symbol 'storage_destroy' in the loaded module");
-            dlclose(st->handle);
-            free(st);
-            return NULL;
-        }
-
-        int (*reset)(void *);
-        reset = dlsym(st->handle, "storage_reset");
-        if (!reset || ((error = dlerror()) != NULL))  {
-          if (error)
-            SHC_ERROR("%s", error);
-          else
-            SHC_ERROR("Can't find the symbol 'storage_reset' in the loaded module");
-          dlclose(st->handle);
-          free(st);
-          return NULL;
-        }
-        
-        initialized = (*init)(&st->storage, storage_options);
-        st->destroyer = destroy;
-        st->resetter = reset;
+        st->storage = shardcache_storage_load(libname, storage_options);
+        initialized = (st->storage != NULL);
     }
     if (initialized != 0) {
         SHC_ERROR("Can't init the storage type: %s\n", storage_type);
+        if (st->internal) {
+            free(st->storage);
+        } else if (st) {
+            shardcache_storage_dispose(st->storage);
+        }
         free(st);
         return NULL;
     }
@@ -127,23 +74,25 @@ shcd_storage_init(char *storage_type, char *options_string, char *plugins_dir)
 }
 
 shardcache_storage_t *shcd_storage_get(shcd_storage_t *st) {
-    return &st->storage;
+    return st->storage;
 }
 
 void shcd_storage_destroy(shcd_storage_t *st) {
+
     if (st->destroyer)
-        st->destroyer(st->storage.priv);
-    if (st->handle)
-        dlclose(st->handle);
+        st->destroyer(st->storage->priv);
+
+    if (st->internal)
+        free(st->storage);
+    else
+        shardcache_storage_dispose(st->storage);
     free(st);
 }
 
-void shcd_storage_reset(shcd_storage_t *st) {
-  int ret = 0;
-  SHC_DEBUG("resetting storage module (%p)", st->resetter);
-  if(st->resetter) {
-    ret = st->resetter(st->storage.priv);
-    SHC_DEBUG("reset %d connections\n", ret);
-  }
-
+int shcd_storage_reset(shcd_storage_t *st) {
+    int ret = 0;
+    SHC_DEBUG("resetting the storage module");
+    if (!st->internal)
+        ret = shardcache_storage_reset(st->storage);
+    return ret;
 }

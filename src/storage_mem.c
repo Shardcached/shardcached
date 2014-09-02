@@ -125,7 +125,7 @@ st_index(shardcache_storage_index_item_t *index, size_t isize, void *priv)
 }
 
 int
-storage_mem_init(shardcache_storage_t *st, const char **options)
+storage_mem_init(shardcache_storage_t *st, char **options)
 {
     st->fetch  = st_fetch;
     st->store  = st_store;
