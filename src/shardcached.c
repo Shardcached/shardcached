@@ -58,6 +58,7 @@ static int should_exit = 0;
 static int should_reset = 0;
 static shcd_acl_t *http_acl = NULL;
 static hashtable_t *mime_types = NULL;
+static shcd_storage_t *st = NULL;
 
 typedef struct {
     char me[256];
@@ -233,10 +234,12 @@ static void shardcached_do_nothing(int sig)
 static void shardcached_reset(int sig)
 {
   // signal running thread, but don't set terminal flag, set reset instead
-  (void)__sync_add_and_fetch(&should_reset, 1);
-  pthread_mutex_lock(&exit_lock);
-  pthread_cond_signal(&exit_cond);
-  pthread_mutex_unlock(&exit_lock);
+    if (st && __sync_bool_compare_and_swap(&should_reset, 0, 1)) {
+        int rc = shcd_storage_reset(st);
+        __sync_bool_compare_and_swap(&should_reset, 1, 0);
+        if (rc != 0)
+            SHC_ERROR("shcd_Storage_reset failed with error %d", rc);
+    }
 }
 
 static void shardcached_run(shardcache_t *cache, uint32_t stats_interval, shcd_storage_t *st)
@@ -296,10 +299,6 @@ static void shardcached_run(shardcache_t *cache, uint32_t stats_interval, shcd_s
             pthread_mutex_lock(&exit_lock);
             pthread_cond_wait(&exit_cond, &exit_lock);
             pthread_mutex_unlock(&exit_lock);
-            if(__sync_add_and_fetch(&should_reset, 0)) {
-              shcd_storage_reset(st);
-              __sync_sub_and_fetch(&should_reset, 1); // back to 0
-            }
         }
     }
 }
@@ -898,7 +897,6 @@ int main(int argc, char **argv)
         usage(argv[0], -2, "iomux_run_timeout_high MUST be 0 or a positive integer");
 
     shardcache_t *cache = NULL;
-    shcd_storage_t *st = NULL;
     shcd_http_t *http_server = NULL;
 
     int rc = 0;
