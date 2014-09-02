@@ -6,7 +6,7 @@ DEPS += deps/.libs/libshardcache.a \
         deps/.libs/libchash.a \
         deps/.libs/libsiphash.a
 
-LDFLAGS += -L. -ldl
+LDFLAGS += -L.
 
 ifeq ($(UNAME), Linux)
 LDFLAGS += -pthread
@@ -38,7 +38,7 @@ $(LIBSHARDCACHE_DIR)/libshardcache.a:
 	make -C $(LIBSHARDCACHE_DIR) static
 
 shardcached: $(DEPS) objects
-	$(CC) src/*.o $(LDFLAGS) $(DEPS) -o shardcached
+	$(CC) src/*.o $(LDFLAGS) $(DEPS) -o shardcached -ldl
 
 .PHONY: dynamic
 dynamic: objects
