@@ -42,14 +42,14 @@ shcd_storage_init(char *storage_type, char *options_string, char *plugins_dir)
     if (strcmp(storage_type, "mem") == 0) {
         // TODO - validate options
         st->storage = calloc(1, sizeof(shardcache_storage_t));
-        initialized = storage_mem_init(st->storage, storage_options);
+        initialized = (storage_mem_init(st->storage, storage_options) == 0);
         st->destroyer = storage_mem_destroy;
         st->storage->version = SHARDCACHE_STORAGE_API_VERSION;
         st->internal = 1;
     } else if (strcmp(storage_type, "fs") == 0) {
         // TODO - validate options
         st->storage = calloc(1, sizeof(shardcache_storage_t));
-        initialized = storage_fs_init(st->storage, storage_options);
+        initialized = (storage_fs_init(st->storage, storage_options) == 0);
         st->destroyer = storage_fs_destroy;
         st->storage->version = SHARDCACHE_STORAGE_API_VERSION;
         st->internal = 1;
@@ -60,7 +60,7 @@ shcd_storage_init(char *storage_type, char *options_string, char *plugins_dir)
         st->storage = shardcache_storage_load(libname, storage_options);
         initialized = (st->storage != NULL);
     }
-    if (initialized != 0) {
+    if (!initialized) {
         SHC_ERROR("Can't init the storage type: %s\n", storage_type);
         if (st->internal) {
             free(st->storage);
