@@ -300,6 +300,9 @@ struct http_response* http_req(char *http_headers, int http_len, struct parsed_u
         close(sock);
     #endif
 
+    if (!response)
+        return hresp;
+
     /* Parse status code and text */
     char *status_line = get_until(response, "\r\n");
     if (strstr(status_line, "HTTP/1.1"))
