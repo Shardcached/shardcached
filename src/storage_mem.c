@@ -4,50 +4,29 @@
 #include <hashtable.h>
 #include "storage_mem.h"
 
-typedef struct {
-    void *value;
-    size_t size;
-} stored_item_t;
-
-static void
-free_item_cb(void *ptr)
-{
-    stored_item_t *item = (stored_item_t *)ptr;
-    if (item->value)
-        free(item->value);
-    free(item);
-}
-
-static void *
-copy_item_cb(void *ptr, size_t len, void *user)
-{
-    stored_item_t *item = (stored_item_t *)ptr;
-    stored_item_t *copy = malloc(sizeof(stored_item_t));
-    copy->value = malloc(item->size);
-    memcpy(copy->value, item->value, item->size);
-    copy->size = item->size;
-    return copy;
-}
-
 static int
 st_fetch(void *key, size_t len, void **value, size_t *vlen, void *priv)
 {
     hashtable_t *storage = (hashtable_t *)priv;
-    stored_item_t *item =  ht_get_deep_copy(storage,
-                                            key,
-                                            len,
-                                            NULL,
-                                            copy_item_cb,
-                                            NULL);
-    void *v = NULL;
-    if (item) {
-        v = item->value;
-        if (vlen) 
-            *vlen = item->size;
-        free(item);
-    }
-    if (value)
+    size_t l = 0;
+    void *v = ht_get_copy(storage, key, len, &l);
+
+    if (l) 
+        *vlen = l;
+    if (v)
         *value = v;
+
+    return 0;
+}
+
+static int
+st_fetch_multi(void **keys, size_t *klens, int nkeys, void **values, size_t *vlens, void *priv)
+{
+    hashtable_t *storage = (hashtable_t *)priv;
+    int i;
+
+    for (i = 0; i < nkeys; i++)
+        values[i] = ht_get_copy(storage, keys[i], klens[i], &vlens[i]);
 
     return 0;
 }
@@ -56,11 +35,7 @@ static int
 st_store(void *key, size_t len, void *value, size_t vlen, void *priv)
 {
     hashtable_t *storage = (hashtable_t *)priv;
-    stored_item_t *new_item = malloc(sizeof(stored_item_t));
-    new_item->value = malloc(vlen);
-    memcpy(new_item->value, value, vlen);
-    new_item->size = vlen;
-    ht_set(storage, key, len, new_item, sizeof(stored_item_t));
+    ht_set_copy(storage, key, len, value, vlen, NULL, NULL);
     return 0;
 }
 
@@ -108,8 +83,7 @@ st_pair_iterator(hashtable_t *table,
         index_item->key = malloc(klen);
         memcpy(index_item->key, key, klen);
         index_item->klen = klen;
-        stored_item_t *item = (stored_item_t *)value;
-        index_item->vlen = item->size;
+        index_item->vlen = vlen;
         return 1;
     }
     return 0;
@@ -133,6 +107,7 @@ storage_mem_init(shardcache_storage_t *st, char **options)
     st->exist  = st_exist;
     st->index  = st_index;
     st->count  = st_count;
+    st->fetch_multi = st_fetch_multi;
 
     int size = 1024;
     int maxsize = 1 << 20;
@@ -161,7 +136,7 @@ storage_mem_init(shardcache_storage_t *st, char **options)
             }
         }
     }
-    hashtable_t *storage = ht_create(size, maxsize, free_item_cb);
+    hashtable_t *storage = ht_create(size, maxsize, free);
     st->priv = storage;
     
     return 0;

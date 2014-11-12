@@ -117,6 +117,18 @@ st_fetch(void *key, size_t klen, void **value, size_t *vlen, void *priv)
 }
 
 static int
+st_fetch_multi(void **keys, size_t *klens, int nkeys, void **values, size_t *vlens, void *priv)
+{
+    int i;
+    for (i = 0; i < nkeys; i++) {
+        int rc = st_fetch(keys[i], klens[i], &values[i], &vlens[i], priv);
+        if (rc != 0)
+            return -1;
+    }
+    return 0;
+}
+
+static int
 st_store(void *key, size_t klen, void *value, size_t vlen, void *priv)
 {
     storage_fs_t *storage = (storage_fs_t *)priv;
@@ -334,6 +346,7 @@ storage_fs_init(shardcache_storage_t *st, char **options)
     st->exist  = st_exist;
     st->index  = st_index;
     st->count  = st_count;
+    st->fetch_multi  = st_fetch_multi;
 
     storage_fs_t *storage = NULL;
     char *storage_path = NULL;
