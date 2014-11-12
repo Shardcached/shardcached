@@ -238,7 +238,7 @@ static void shardcached_reset(int sig)
         int rc = shcd_storage_reset(st);
         __sync_bool_compare_and_swap(&should_reset, 1, 0);
         if (rc != 0)
-            SHC_ERROR("shcd_Storage_reset failed with error %d", rc);
+            SHC_ERROR("shardcached_reset failed with error %d", rc);
     }
 }
 
