@@ -7,3 +7,12 @@
 [submodule "support/libut"]
 	path = support/libut
 	url = https://github.com/xant/libut.git
+[submodule "storage_plugins/deps/protobuf-c"]
+	path = storage_plugins/deps/protobuf-c
+	url = https://github.com/protobuf-c/protobuf-c.git
+[submodule "storage_plugins/deps/protobuf-cpp"]
+	path = storage_plugins/deps/protobuf-cpp
+	url = https://github.com/google/protobuf.git
+[submodule "storage_plugins/deps/riak-c-client"]
+	path = storage_plugins/deps/riak-c-client
+	url = https://github.com/basho/riak-c-client.git
