@@ -4,9 +4,6 @@
 #include <stdlib.h>
 #include <riak.h>
 #include <shardcache.h>
-#include <pthread.h>
-#include <errno.h>
-#include <fbuf.h>
 #include <queue.h>
 
 #define ST_HOST_DEFAULT            "localhost"
@@ -126,6 +123,144 @@ st_release_connection(storage_riak_t *st, riak_connection *riak)
 }
 
 static int
+st_remove(void *key, size_t klen, void *priv)
+{
+    storage_riak_t *st = (storage_riak_t *)priv;
+
+    char *keystr = calloc(1, klen+1);
+    memcpy(keystr, key, klen);
+    char *tofree = keystr;
+
+    char *bucket = strsep(&keystr, ",");
+    char *keybin = keystr;
+
+    if (!bucket) {
+        char k[klen+1];
+        snprintf(k, sizeof(k), "%s", key);
+        SHC_WARNING("Unsupported key : %s", k);
+        free(tofree);
+        return -1;
+    }
+
+    riak_connection *riak = st_get_connection(st);
+    if (!riak) {
+        free(tofree);
+        return -1;
+    }
+
+    riak_delete_options *delete_options = riak_delete_options_new(st->riak_cfg);
+    if (delete_options == NULL) {
+        SHC_ERROR("Could not allocate a Riak Delete Options");
+        riak_connection_free(&riak);
+        free(tofree);
+        return -1;
+    }
+    riak_delete_options_set_w(delete_options, 1);
+    riak_delete_options_set_dw(delete_options, 1);
+
+    riak_binary *bucket_bin = riak_binary_copy_from_string(st->riak_cfg, bucket);
+    riak_binary *key_bin = riak_binary_copy_from_string(st->riak_cfg, keybin);
+
+    int rc = -1;
+    riak_error err = riak_delete(riak, NULL, bucket_bin, key_bin, delete_options);
+    riak_delete_options_free(st->riak_cfg, &delete_options);
+    if (err) {
+        SHC_ERROR("Delete Problems [%s]", riak_strerror(err));
+        riak_connection_free(&riak);
+    } else {
+        rc = 0;
+        st_release_connection(st, riak);
+    }
+
+    riak_binary_free(st->riak_cfg, &bucket_bin);
+    riak_binary_free(st->riak_cfg, &key_bin);
+    free(tofree);
+
+    return 0;
+}
+
+static int
+st_store(void *key, size_t klen, void *value, size_t vlen, void *priv)
+{
+    storage_riak_t *st = (storage_riak_t *)priv;
+    char *keystr = calloc(1, klen+1);
+    memcpy(keystr, key, klen);
+    char *tofree = keystr;
+
+    char *bucket = strsep(&keystr, ",");
+    char *keybin = keystr;
+
+    if (!bucket) {
+        char k[klen+1];
+        snprintf(k, sizeof(k), "%s", key);
+        SHC_WARNING("Unsupported key : %s", k);
+        free(tofree);
+        return -1;
+    }
+
+    riak_object *obj = riak_object_new(st->riak_cfg);
+    if (obj == NULL) {
+        SHC_ERROR("Could not allocate a Riak Object");
+        free(tofree);
+        return -1;
+    }
+
+    riak_binary *value_bin = riak_binary_new(st->riak_cfg, vlen, (riak_uint8_t *)value);
+    riak_binary *bucket_bin = riak_binary_copy_from_string(st->riak_cfg, bucket);
+    riak_binary *key_bin = riak_binary_copy_from_string(st->riak_cfg, keybin);
+
+    riak_object_set_bucket(st->riak_cfg, obj, bucket_bin);
+    riak_object_set_key(st->riak_cfg, obj, key_bin);
+    riak_object_set_value(st->riak_cfg, obj, value_bin);
+
+    riak_binary_free(st->riak_cfg, &bucket_bin);
+    riak_binary_free(st->riak_cfg, &key_bin);
+    riak_binary_free(st->riak_cfg, &value_bin);
+
+    if (riak_object_get_bucket(obj) == NULL ||
+        riak_object_get_value(obj) == NULL) {
+        SHC_ERROR("Could not allocate bucket/value");
+        riak_free(st->riak_cfg, &obj);
+        free(tofree);
+        return -1;
+    }
+    riak_put_options *put_options = riak_put_options_new(st->riak_cfg);
+    if (put_options == NULL) {
+        SHC_ERROR("Could not allocate a Riak Put Options");
+        free(tofree);
+        return -1;
+    }
+
+    riak_put_options_set_return_head(put_options, RIAK_FALSE);
+    riak_put_options_set_return_body(put_options, RIAK_FALSE);
+
+    int rc = -1;
+
+    riak_connection *riak = st_get_connection(st);
+    if (riak) {
+        riak_put_response *put_response = NULL;
+        riak_error err = riak_put(riak, obj, put_options, &put_response);
+        if (err == ERIAK_OK)
+            rc = 0;
+        else
+            SHC_ERROR("Put Problems [%s]", riak_strerror(err));
+
+        if (put_response)
+            riak_put_response_free(st->riak_cfg, &put_response);
+
+        st_release_connection(st, riak);
+    }
+
+    riak_object_free(st->riak_cfg, &obj);
+    riak_put_options_free(st->riak_cfg, &put_options);
+
+    free(tofree);
+
+
+    return rc; 
+}
+
+static int
 st_fetch(void *key, size_t klen, void **value, size_t *vlen, void *priv)
 {
     storage_riak_t *st = (storage_riak_t *)priv;
@@ -154,7 +289,9 @@ st_fetch(void *key, size_t klen, void **value, size_t *vlen, void *priv)
     riak_get_options *get_options = riak_get_options_new(st->riak_cfg);
     if (get_options == NULL) {
         SHC_ERROR("Could not allocate a Riak Get Options");
-        return 1;
+        riak_connection_free(&riak);
+        free(tofree);
+        return -1;
     }
     riak_get_options_set_basic_quorum(get_options, RIAK_TRUE);
     riak_get_options_set_r(get_options, 2);
@@ -184,6 +321,7 @@ st_fetch(void *key, size_t klen, void **value, size_t *vlen, void *priv)
         SHC_ERROR("Get Problems [%s]\n", riak_strerror(err));
         riak_connection_free(&riak);
         free(tofree);
+        riak_get_options_free(st->riak_cfg, &get_options);
         riak_binary_free(st->riak_cfg, &bucket_bin);
         riak_binary_free(st->riak_cfg, &key_bin);
         return -1;
@@ -260,6 +398,8 @@ storage_init(shardcache_storage_t *storage, const char **options)
     }
 
     storage->fetch  = st_fetch;
+    storage->store  = st_store;
+    storage->remove  = st_remove;
     storage->shared = 1;
     storage->global = 1;
     storage->priv   = st;
