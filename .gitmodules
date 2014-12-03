@@ -15,7 +15,7 @@
 	url = https://github.com/google/protobuf.git
 [submodule "storage_plugins/deps/riak-c-client"]
 	path = storage_plugins/deps/riak-c-client
-	url = https://github.com/basho/riak-c-client.git
+	url = https://github.com/xant/riak-c-client.git
 [submodule "storage_plugins/deps/CUnit"]
 	path = storage_plugins/deps/CUnit
 	url = https://github.com/jlferrer/CUnit.git

@@ -294,7 +294,7 @@ st_fetch(void *key, size_t klen, void **value, size_t *vlen, void *priv)
         return -1;
     }
     riak_get_options_set_basic_quorum(get_options, RIAK_TRUE);
-    riak_get_options_set_r(get_options, 2);
+    riak_get_options_set_r(get_options, 1);
     riak_get_response *get_response = NULL;
 
     riak_binary *bucket_bin = riak_binary_copy_from_string(st->riak_cfg, bucket);
@@ -302,7 +302,7 @@ st_fetch(void *key, size_t klen, void **value, size_t *vlen, void *priv)
 
     riak_error err = riak_get(riak, NULL, bucket_bin, key_bin, get_options, &get_response);
     if (err == ERIAK_OK) {
-        if (riak_get_is_found(get_response)) {
+        if (get_response && riak_get_is_found(get_response)) {
             riak_object **objects = riak_get_get_content(get_response);
             riak_binary *bin = riak_object_get_value(objects[0]); // XXX - HC to access the first object
             riak_size_t size = riak_binary_len(bin);

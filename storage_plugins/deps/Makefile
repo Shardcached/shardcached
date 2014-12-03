@@ -3,7 +3,7 @@ export DEPS_INSTALL_DIR=$(shell pwd)
 export SHARDCACHE_INSTALL_LIBDIR := $(DEPS_INSTALL_DIR)/.libs
 export SHARDCACHE_INSTALL_INCDIR := $(DEPS_INSTALL_DIR)/.incs
 
-all: _prepare_env redis_deps riak_deps
+all: _prepare_env riak_deps
 
 .PHONY: _prepare_env
 _prepare_env:
@@ -25,7 +25,7 @@ cunit_dep:
 	autoheader ;\
 	automake --force-missing --add-missing ;\
 	autoconf ;\
-	./configure --datarootdir=$(SHARDCACHE_INSTALL_LIBDIR) --libdir=$(SHARDCACHE_INSTALL_LIBDIR) --includedir=$(SHARDCACHE_INSTALL_INCDIR) --bindir=$(SHARDCACHE_INSTALL_LIBDIR);\
+	./configure --datarootdir=$(SHARDCACHE_INSTALL_LIBDIR) --libdir=$(SHARDCACHE_INSTALL_LIBDIR) --includedir=$(SHARDCACHE_INSTALL_INCDIR) --bindir=$(SHARDCACHE_INSTALL_LIBDIR) --prefix=$(SHARDCACHE_INSTALL_LIBDIR);\
 	fi; \
 	cd - ;\
 	make -eC CUnit ;
