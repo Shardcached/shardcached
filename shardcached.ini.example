@@ -25,6 +25,7 @@ peer2 = some_peer:4445
 peer3 = some_other_peer:4446
 
 [shardcache]
+arc_mode = strict                              ; ARC mode (optional, 'strict' or 'loose', defaults to 'strict')
 num_workers = 50                               ; Number of shardcache workers (optional, defaults to '10')
 evict_on_delete = yes                          ; Evict on delete (optional, defaults to 'yes')
 use_persistent_connections = yes               ; Use persistent connections instead of creating a new connection

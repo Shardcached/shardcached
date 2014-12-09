@@ -33,7 +33,7 @@
 #include "storage.h"
 #include "ini.h"
 
-#define SHARDCACHED_VERSION "0.19"
+#define SHARDCACHED_VERSION "0.20"
 
 #define SHARDCACHED_ADDRESS_DEFAULT "4321"
 #define SHARDCACHED_LOGLEVEL_DEFAULT 0
@@ -101,6 +101,7 @@ typedef struct {
     int iomux_run_timeout_low;
     int iomux_run_timeout_high;
     int pipelining_max;
+    int arc_mode;
 
     // connection pool NOOP verification timeout
     time_t conn_expire_time;
@@ -139,6 +140,7 @@ static shardcached_config_t config = {
     .iomux_run_timeout_low = 0,
     .iomux_run_timeout_high = 0,
     .pipelining_max = SHARDCACHE_SERVING_LOOK_AHEAD_DEFAULT,
+    .arc_mode = SHARDCACHE_ARC_MODE_STRICT,
     .pidfile = SHARDCACHED_PIDFILE_DEFAULT,
     .conn_expire_time = SHARDCACHE_CONNECTION_EXPIRE_DEFAULT
 };
@@ -164,6 +166,7 @@ static void usage(char *progname, int rc, char *msg, ...)
            "    -i <interval>         change the time interval (in seconds) used to report internal stats via syslog (defaults to '%d')\n"
            "    -l <ip_address:port>  ip_address:port where to listen for incoming http connections\n"
            "    -L                    enable lazy expiration\n"
+           "    -M                    sets the arc_mode in libshardcache to 'loose' (defaults to : 'strict')\n" 
            "    -E <expire_time>      set the expiration time for cached items (defaults to: %d)\n"
            "    -e <conn_expire_time> the expiration time for a connection in the pool to trigger a NOOP (defaults to %d)\n"
            "    -r <mux_timeout_low>  set the low timeout passed to iomux_run() calls (in microsecs, defaults to: %d)\n"
@@ -562,6 +565,19 @@ int config_handler(void *user,
             snprintf(config->secret, sizeof(config->secret),
                     "%s", value);
         }
+        else if (strcmp(name, "arc_mode") == 0)
+        {
+            if (strcmp(value, "strict") == 0) {
+                config->arc_mode = SHARDCACHE_ARC_MODE_STRICT;
+            } else if (strcmp(value, "loose") == 0) {
+                config->arc_mode = SHARDCACHE_ARC_MODE_LOOSE;
+            } else {
+                fprintf(stderr, "Invalid value %s for the option %s in section %s, "
+                                "allowed values are : 'strict' or 'loose'\n",
+                                value, name, section);
+                return 0;
+            }
+        }
         else
         {
             fprintf(stderr, "Unknown option %s in section %s\n", name, section);
@@ -684,6 +700,7 @@ void parse_cmdline(int argc, char **argv)
         {"listen", 2, 0, 'l'},
         {"lazy_expiration", 0, 0, 'L'},
         {"me", 2, 0, 'm'},
+        {"arc_mode_loose", 0, 0, 'M'},
         {"nodes", 2, 0, 'n'},
         {"pidfile", 2, 0, 'p'},
         {"mux_timeout_low", 2, 0, 'r'},
@@ -705,7 +722,7 @@ void parse_cmdline(int argc, char **argv)
     };
 
     char c;
-    while ((c = getopt_long (argc, argv, "a:b:B:c:d:e:E:fFg:hHi:l:Lm:n:Np:P:r:R:s:S:t:T:o:u:vVw:x:?",
+    while ((c = getopt_long (argc, argv, "a:b:B:c:d:e:E:fFg:hHi:l:Lm:Mn:Np:P:r:R:s:S:t:T:o:u:vVw:x:?",
                              long_options, &option_index)))
     {
         if (c == -1) {
@@ -767,6 +784,9 @@ void parse_cmdline(int argc, char **argv)
             case 'm':
                 snprintf(config.me,
                         sizeof(config.me), "%s", optarg);
+                break;
+            case 'M':
+                config.arc_mode = SHARDCACHE_ARC_MODE_LOOSE;
                 break;
             case 'n':
                 // first reset the actual nodes configuration
@@ -977,6 +997,7 @@ int main(int argc, char **argv)
     shardcache_iomux_run_timeout_low(cache, config.iomux_run_timeout_low);
     shardcache_iomux_run_timeout_high(cache, config.iomux_run_timeout_high);
     shardcache_serving_look_ahead(cache, config.pipelining_max);
+    shardcache_arc_mode(cache, config.arc_mode);
 
     if (config.tcp_timeout > 0)
         shardcache_tcp_timeout(cache, config.tcp_timeout);
