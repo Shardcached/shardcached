@@ -134,7 +134,7 @@ st_remove(void *key, size_t klen, void *priv)
     char *bucket = strsep(&keystr, ",");
     char *keybin = keystr;
 
-    if (!bucket) {
+    if (!bucket || !keybin) {
         char k[klen+1];
         snprintf(k, sizeof(k), "%s", key);
         SHC_WARNING("Unsupported key : %s", k);
@@ -190,7 +190,7 @@ st_store(void *key, size_t klen, void *value, size_t vlen, void *priv)
     char *bucket = strsep(&keystr, ",");
     char *keybin = keystr;
 
-    if (!bucket) {
+    if (!bucket || !keybin) {
         char k[klen+1];
         snprintf(k, sizeof(k), "%s", key);
         SHC_WARNING("Unsupported key : %s", k);
