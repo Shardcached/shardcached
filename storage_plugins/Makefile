@@ -1,4 +1,4 @@
-PLUGINS=sqlite mysql redis
+PLUGINS=riak
 
 all: build_deps $(PLUGINS)
 

@@ -85,7 +85,7 @@ riak_c_client_dep:
 	make -eC riak-c-client install;
 
 .PHONY: riak_deps
-riak_deps: _prepare_env cunit_dep protobuf_dep protobuf_c_dep riak_c_client_dep
+riak_deps: _prepare_env protobuf_dep protobuf_c_dep riak_c_client_dep
 
 .PHONY: redis_deps
 redis_deps:
