@@ -64,7 +64,7 @@ shcd_storage_init(char *storage_type, char *options_string, char *plugins_dir)
         SHC_ERROR("Can't init the storage type: %s\n", storage_type);
         if (st->internal) {
             free(st->storage);
-        } else if (st) {
+        } else if (st->storage) {
             shardcache_storage_dispose(st->storage);
         }
         free(st);
