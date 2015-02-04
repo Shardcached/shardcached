@@ -972,7 +972,7 @@ int main(int argc, char **argv)
         }
     }
 
-    SHC_DEBUG("Starting the shardcache engine with %d workers", config.num_workers);
+    SHC_DEBUG("Starting the shardcache engine version %s with %d workers", LIBSHARDCACHE_VERSION, config.num_workers);
     cache = shardcache_create(config.me,
                               config.nodes,
                               config.num_nodes,
