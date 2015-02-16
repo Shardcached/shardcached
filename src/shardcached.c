@@ -46,7 +46,6 @@ const char *SHARDCACHED_BUILD_INFO = X_STRINGIFY(BUILD_INFO);
 
 #define SHARDCACHED_ADDRESS_DEFAULT "4321"
 #define SHARDCACHED_LOGLEVEL_DEFAULT 0
-#define SHARDCACHED_SECRET_DEFAULT ""
 #define SHARDCACHED_STORAGE_TYPE_DEFAULT "mem"
 #define SHARDCACHED_STORAGE_OPTIONS_DEFAULT ""
 // default cache size : 512 MB
@@ -80,7 +79,6 @@ typedef struct {
     int  num_nodes;
     shardcache_node_t **migration_nodes;
     int  num_migration_nodes;
-    char secret[1024];
     char storage_type[256];
     char storage_options[MAX_OPTIONS_STRING_LEN];
     uint32_t stats_interval;
@@ -127,7 +125,6 @@ static shardcached_config_t config = {
     .num_nodes = 0,
     .migration_nodes = NULL,
     .num_migration_nodes = 0,
-    .secret = SHARDCACHED_SECRET_DEFAULT,
     .storage_type = SHARDCACHED_STORAGE_TYPE_DEFAULT,
     .storage_options = SHARDCACHED_STORAGE_OPTIONS_DEFAULT,
     .stats_interval = SHARDCACHED_STATS_INTERVAL_DEFAULT,
@@ -186,7 +183,6 @@ static void usage(char *progname, int rc, char *msg, ...)
            "    -N                    no storage subsystem, use only the internal libshardcache volatile storage\n"
            "    -m me                 the label of this node, to identify it among the ones participating in the shardcache\n"
            "    -P <pipelining_max>   the maximum amount of requests to handle ahead on the same connection while still serving a response (defaults to: %d)\n"
-           "    -S                    shared secret used for message signing (defaults to : '%s')\n"
            "    -s                    cache size in bytes (defaults to : '%d')\n"
            "    -T <tcp_timeout>      tcp timeout (in milliseconds) used for connections opened by libshardcache (defaults to '%d')\n"
            "    -t <type>             storage type (available are : 'mem' and 'fs' (defaults to '%s')\n"
@@ -221,7 +217,6 @@ static void usage(char *progname, int rc, char *msg, ...)
            , SHARDCACHE_IOMUX_RUN_TIMEOUT_LOW
            , SHARDCACHE_IOMUX_RUN_TIMEOUT_HIGH
            , SHARDCACHE_SERVING_LOOK_AHEAD_DEFAULT
-           , SHARDCACHED_SECRET_DEFAULT
            , SHARDCACHED_CACHE_SIZE_DEFAULT
            , SHARDCACHE_TCP_TIMEOUT_DEFAULT
            , SHARDCACHED_STORAGE_TYPE_DEFAULT
@@ -561,11 +556,6 @@ int config_handler(void *user,
         {
             config->cache_size = strtol(value, NULL, 10);
         }
-        else if (strcmp(name, "secret") == 0)
-        {
-            snprintf(config->secret, sizeof(config->secret),
-                    "%s", value);
-        }
         else if (strcmp(name, "arc_mode") == 0)
         {
             if (strcmp(value, "strict") == 0) {
@@ -707,7 +697,6 @@ void parse_cmdline(int argc, char **argv)
         {"mux_timeout_low", 2, 0, 'r'},
         {"mux_timeout_high", 2, 0, 'R'},
         {"size", 2, 0, 's'},
-        {"secret", 2, 0, 'S'},
         {"type", 2, 0, 't'},
         {"tcp_timeout", 2, 0, 'T'},
         {"options", 2, 0, 'o'},
@@ -723,7 +712,7 @@ void parse_cmdline(int argc, char **argv)
     };
 
     char c;
-    while ((c = getopt_long (argc, argv, "a:b:B:c:d:e:E:fFg:hHi:l:Lm:Mn:Np:P:r:R:s:S:t:T:o:u:vVw:x:?",
+    while ((c = getopt_long (argc, argv, "a:b:B:c:d:e:E:fFg:hHi:l:Lm:Mn:Np:P:r:R:s:t:T:o:u:vVw:x:?",
                              long_options, &option_index)))
     {
         if (c == -1) {
@@ -816,10 +805,6 @@ void parse_cmdline(int argc, char **argv)
                 break;
             case 's':
                 config.cache_size = strtol(optarg, NULL, 10);
-                break;
-            case 'S':
-                snprintf(config.secret,
-                        sizeof(config.secret), "%s", optarg);
                 break;
             case 't':
                 snprintf(config.storage_type,

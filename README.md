@@ -42,7 +42,6 @@ Possible options:
     -N                    no storage subsystem, use only the internal libshardcache volatile storage
     -m me                 the label of this node, to identify it among the ones participating in the shardcache
     -P <pipelining_max>   the maximum amount of requests to handle in parallel while still serving a response (defaults to: 64)
-    -S                    shared secret used for message signing (defaults to : '')
     -s                    cache size in bytes (defaults to : '536870912')
     -T <tcp_timeout>      tcp timeout (in milliseconds) used for connections opened by libshardcache (defaults to '5000')
     -t <type>             storage type (available are : 'mem' and 'fs' (defaults to 'mem')
@@ -119,7 +118,6 @@ iomux_run_timeout_high = 0                     ; Sets the high timeout (in micro
                                                ; (optional, a 0 value will make libshardcache use the compile-time default)
 pipelining_max = 64                            ; maximum number of requests to process ahead when pipelining
                                                ; (if omitted, the libshardcache compiled-in default will be used)
-secret = default                               ; Shared secret used for message signing (optional, defaults to 'default') 
 
 [http]
 listen = *:4321                                ; HTTP address:port where to listen for incoming connections (optional)

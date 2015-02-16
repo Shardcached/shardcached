@@ -48,7 +48,6 @@ iomux_run_timeout_high = 0                     ; Sets the high timeout (in micro
                                                ; (optional, a 0 value will make libshardcache use the compile-time default)
 pipelining_max = 64                            ; maximum number of requests to process ahead when pipelining
                                                ; (if omitted, the libshardcache compiled-in default will be used)
-secret = default                               ; Shared secret used for message signing (optional, defaults to 'default') 
 
 [http]
 listen = *:4321                                ; HTTP address:port where to listen for incoming connections (optional)
