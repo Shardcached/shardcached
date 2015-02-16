@@ -386,7 +386,7 @@ shardcached_handle_get_request(http_worker_t *wrk, struct mg_connection *conn, c
         pthread_mutex_init(&st->slock, NULL);
         st->sbuf = fbuf_create(0);
 
-        int rc = shardcache_get_async(wrk->cache, key, strlen(key), shardcache_get_async_callback, st);
+        int rc = shardcache_get(wrk->cache, key, strlen(key), shardcache_get_async_callback, st);
         if (rc != 0) {
             mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
             pthread_mutex_destroy(&st->slock);
@@ -416,7 +416,7 @@ shardcached_handle_delete_request(http_worker_t *wrk, struct mg_connection *conn
         }
     }
 
-    int rc = shardcache_del(wrk->cache, key, strlen(key));
+    int rc = shardcache_del(wrk->cache, key, strlen(key), NULL, NULL);
     mg_printf(conn, "HTTP/1.0 %s\r\n"
                     "Content-Length: 0\r\n\r\n",
                      rc == 0 ? "200 OK" : "500 ERR");
@@ -447,7 +447,7 @@ shardcached_handle_put_request(http_worker_t *wrk, struct mg_connection *conn, c
         return;
     }
 
-    shardcache_set(wrk->cache, key, strlen(key), conn->content, conn->content_len);
+    shardcache_set(wrk->cache, key, strlen(key), conn->content, conn->content_len, 0, 0, 0, NULL, NULL);
 
     mg_printf(conn, "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n");
 }

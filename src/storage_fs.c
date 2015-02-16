@@ -117,7 +117,7 @@ st_fetch(void *key, size_t klen, void **value, size_t *vlen, void *priv)
 }
 
 static int
-st_store(void *key, size_t klen, void *value, size_t vlen, void *priv)
+st_store(void *key, size_t klen, void *value, size_t vlen, int if_not_exists, void *priv)
 {
     storage_fs_t *storage = (storage_fs_t *)priv;
 
@@ -138,7 +138,22 @@ st_store(void *key, size_t klen, void *value, size_t vlen, void *priv)
     char *intermediate_dir = NULL;
 
     snprintf(tmpdir, tmpdir_len, "%s/%s", storage->tmp, dname);
+
+    char *fullpath = st_fs_filename(storage->path,
+                                    key,
+                                    klen,
+                                    &intermediate_dir);
+
+    if (if_not_exists) {
+        struct stat st;
+        if (stat(fullpath, &st) == 0) {
+            free(fullpath);
+            return 1;
+        }
+    }
+
     char *tmppath = st_fs_filename(tmpdir, key, klen, &tmp_intermediate);
+
     int fd = open(tmppath, O_WRONLY|O_TRUNC|O_CREAT, S_IRWXU|S_IRWXG|S_IRWXO);
     if (fd >=0) {
         int ofx = 0;
@@ -155,16 +170,11 @@ st_store(void *key, size_t klen, void *value, size_t vlen, void *priv)
             }
         }
         if (ofx == vlen) {
-            char *fullpath = st_fs_filename(storage->path,
-                                            key,
-                                            klen,
-                                            &intermediate_dir);
             ret = rename(tmppath, fullpath);
             if (ret != 0)
                 SHC_ERROR("Can't store data on file %s : %s\n",
                            fullpath, strerror(errno));
 
-            free(fullpath);
         }
         close(fd);
     }
@@ -172,6 +182,7 @@ st_store(void *key, size_t klen, void *value, size_t vlen, void *priv)
     if (ret != 0)
         unlink(tmppath);
 
+    free(fullpath);
     rmdir(tmp_intermediate);
     rmdir(tmpdir);
     free(tmppath);

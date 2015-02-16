@@ -53,14 +53,19 @@ st_fetch(void *key, size_t len, void **value, size_t *vlen, void *priv)
 }
 
 static int
-st_store(void *key, size_t len, void *value, size_t vlen, void *priv)
+st_store(void *key, size_t len, void *value, size_t vlen, int if_not_exists, void *priv)
 {
     hashtable_t *storage = (hashtable_t *)priv;
     stored_item_t *new_item = malloc(sizeof(stored_item_t));
     new_item->value = malloc(vlen);
     memcpy(new_item->value, value, vlen);
     new_item->size = vlen;
-    ht_set(storage, key, len, new_item, sizeof(stored_item_t));
+    if (if_not_exists) {
+        if (ht_set_if_not_exists(storage, key, len, new_item, sizeof(stored_item_t)) != 0)
+            free_item_cb(new_item);
+    } else {
+        ht_set(storage, key, len, new_item, sizeof(stored_item_t));
+    }
     return 0;
 }
 
