@@ -382,7 +382,6 @@ storage_fs_init(shardcache_storage_t *st, char **options)
                 free(storage_path);
                 if (tmp_path)
                     free(tmp_path);
-                free(st);
                 return -1;
             }
             SHC_NOTICE("Created storage path: %s", storage_path);
@@ -395,7 +394,6 @@ storage_fs_init(shardcache_storage_t *st, char **options)
             free(storage_path);
             if (tmp_path)
                 free(tmp_path);
-            free(st);
             return -1;
         }
 
@@ -413,7 +411,6 @@ storage_fs_init(shardcache_storage_t *st, char **options)
                 free(storage);
                 free(storage_path);
                 free(tmp_path);
-                free(st);
                 return -1;
             }
         }
@@ -421,7 +418,6 @@ storage_fs_init(shardcache_storage_t *st, char **options)
         SHC_ERROR("No storage path defined");
         if (tmp_path)
             free(tmp_path);
-        free(st);
         return -1;
     }
     storage->index = ht_create(1<<16, 0, free);
