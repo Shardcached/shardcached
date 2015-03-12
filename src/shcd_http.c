@@ -20,8 +20,6 @@
                           "Server: shardcached\r\n" \
                           "Connection: Close\r\n"
 
-#define HTTP_HEADERS_NO_CLEN HTTP_HEADERS_BASE "\r\n"
-
 #define HTTP_HEADERS HTTP_HEADERS_BASE "Content-Length: %d\r\n\r\n"
 
 #define HTTP_HEADERS_WITH_TIME HTTP_HEADERS_BASE "Last-Modified: %s\r\n\r\n"
