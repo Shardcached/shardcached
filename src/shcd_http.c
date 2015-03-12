@@ -286,7 +286,7 @@ shardcache_get_async_callback(void *key,
     }
         
     if (!st->found) {
-        fbuf_printf(st->sbuf, HTTP_HEADERS_NO_CLEN, st->mtype);
+        fbuf_printf(st->sbuf, HTTP_HEADERS, st->mtype, total_size);
         st->found = 1;
     }
 
@@ -639,7 +639,8 @@ shcd_http_create(shardcache_t *cache,
 
             }
             if (strcmp(option, "listening_port") == 0 && i > 0) {
-                mg_set_listening_socket(wrk->server, mg_get_listening_socket(TAILQ_FIRST(&http->workers)->server));
+                //mg_set_listening_socket(wrk->server, mg_get_listening_socket(TAILQ_FIRST(&http->workers)->server));
+                mg_copy_listeners(TAILQ_FIRST(&http->workers)->server, wrk->server);
             } else {
                 const char *msg = mg_set_option(wrk->server, option, value);
                 if (msg != NULL) {
