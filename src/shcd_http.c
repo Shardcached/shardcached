@@ -293,9 +293,9 @@ shardcache_get_async_callback(void *key,
     if (dlen)
         fbuf_add_binary(st->sbuf, data, dlen);
 
-    if (total_size && timestamp) {
+    if (total_size && timestamp)
         st->req_status = MG_REQUEST_PROCESSED;
-    }
+
     pthread_mutex_unlock(&st->slock);
     return 0;
 }
