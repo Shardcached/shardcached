@@ -70,7 +70,8 @@ int main(int argc, char **argv)
     ut_testing("node1: HTTP GET /test == NOT FOUND");
     response = http_get("http://127.0.0.1:54321/test", NULL);
     ut_validate_int(response->status_code_int, 404);
-    http_response_free(response);
+    if (response)
+        http_response_free(response);
 
     ut_testing("node2: HTTP GET /test == NOT FOUND");
     response = http_get("http://127.0.0.1:54322/test", NULL);
