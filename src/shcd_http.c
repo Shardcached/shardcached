@@ -538,7 +538,6 @@ shardcached_parse_request(const char *uri,
     int basepath_len = strlen(basepath);
     int baseadminpath_len = strlen(adminpath);
     int basepaths_differ = (basepath_len != baseadminpath_len || strcmp(basepath, adminpath) != 0);
-    int is_adminpath = 0;
 
     while (*k == '/' && *k)
         k++;
@@ -555,7 +554,6 @@ shardcached_parse_request(const char *uri,
                  strncmp(k, adminpath, baseadminpath_len) == 0 &&
                  strlen(k) > baseadminpath_len && k[baseadminpath_len] == '/')
         {
-            is_adminpath = 1;
             k += baseadminpath_len + 1;
             while (*k == '/' && *k)
                 k++;
