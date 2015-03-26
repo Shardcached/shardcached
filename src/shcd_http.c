@@ -214,8 +214,10 @@ shardcached_build_stats_response(fbuf_t *buf, int do_html, http_worker_t *wrk)
     free(counters);
 }
 
+/*
 static int
 shardcached_parse_querystring(
+*/
 
 static void
 shardcached_handle_admin_request(http_worker_t *wrk,
