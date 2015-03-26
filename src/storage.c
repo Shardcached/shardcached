@@ -93,6 +93,6 @@ int shcd_storage_reset(shcd_storage_t *st) {
     int ret = 0;
     SHC_DEBUG("resetting the storage module");
     if (!st->internal)
-        ret = shardcache_storage_reset(st->storage);
+        ret = shardcache_storage_reset(st->storage, NULL);
     return ret;
 }
