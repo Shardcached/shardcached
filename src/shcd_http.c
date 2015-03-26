@@ -29,6 +29,39 @@
 
 #define ATOMIC_READ(_v) __sync_fetch_and_add(&(_v), 0)
 
+#define HTTP_CONFIGURE_COMMAND "__configure__"
+#define HTTP_STATS_COMMAND "__stats__"
+#define HTTP_INDEX_COMMAND "__index__"
+#define HTTP_HEALTH_COMMAND "__health__"
+
+#define HTTP_MAX_KEYLEN 2048
+
+static inline int
+is_admin_command(char *key, char **extra)
+{
+    static __thread char buf[HTTP_MAX_KEYLEN];
+
+    int i = 0;
+    while (key[i] && key[i] != '/') {
+        buf[i] = key[i];
+        i++;
+    }
+    buf[i] = 0;
+
+    if (strcmp(buf, HTTP_STATS_COMMAND) == 0 ||
+        strcmp(buf, HTTP_INDEX_COMMAND) == 0 ||
+        strcmp(buf, HTTP_HEALTH_COMMAND) == 0 ||
+        strcmp(buf, HTTP_CONFIGURE_COMMAND) == 0)
+    {
+        key[i++] = 0;
+        if (extra)
+            *extra = key + i;
+
+        return 1;
+    }
+    return 0;
+}
+
 typedef struct _http_worker_s {
     TAILQ_ENTRY(_http_worker_s) next;
     pthread_t th;
@@ -181,8 +214,15 @@ shardcached_build_stats_response(fbuf_t *buf, int do_html, http_worker_t *wrk)
     free(counters);
 }
 
+static int
+shardcached_parse_querystring(
+
 static void
-shardcached_handle_admin_request(http_worker_t *wrk, struct mg_connection *conn, char *key, int is_head)
+shardcached_handle_admin_request(http_worker_t *wrk,
+                                 struct mg_connection *conn,
+                                 char *key,
+                                 char *extra,
+                                 int is_head)
 {
     if (wrk->acl) {
         shcd_acl_method_t method = SHCD_ACL_METHOD_GET;
@@ -194,7 +234,21 @@ shardcached_handle_admin_request(http_worker_t *wrk, struct mg_connection *conn,
         }
     }
 
-    if (strcmp(key, "__stats__") == 0) {
+    if (strcmp(key, HTTP_CONFIGURE_COMMAND) == 0) {
+
+        int do_html = (!conn->query_string ||
+                       !strstr(conn->query_string, "nohtml=1"));
+
+        char *resp = do_html ? "<html><body>OK</body></html>" : "OK";
+
+        mg_printf(conn, HTTP_HEADERS,
+                        do_html ? "text/html" : "text/plain",
+                        (int)strlen(resp));
+
+        if (!is_head)
+            mg_printf(conn, "%s", resp);
+
+    } else if (strcmp(key, HTTP_STATS_COMMAND) == 0) {
         int do_html = (!conn->query_string ||
                        !strstr(conn->query_string, "nohtml=1"));
 
@@ -210,7 +264,7 @@ shardcached_handle_admin_request(http_worker_t *wrk, struct mg_connection *conn,
 
         fbuf_destroy(&buf);
 
-    } else if (strcmp(key, "__index__") == 0) {
+    } else if (strcmp(key, HTTP_INDEX_COMMAND) == 0) {
         fbuf_t buf = FBUF_STATIC_INITIALIZER;
         int do_html = (!conn->query_string ||
                        !strstr(conn->query_string, "nohtml=1"));
@@ -225,7 +279,7 @@ shardcached_handle_admin_request(http_worker_t *wrk, struct mg_connection *conn,
             mg_printf(conn, "%s", fbuf_data(&buf));
 
         fbuf_destroy(&buf);
-    } else if (strcmp(key, "__health__") == 0) {
+    } else if (strcmp(key, HTTP_HEALTH_COMMAND) == 0) {
         int do_html = (!conn->query_string ||
                        !strstr(conn->query_string, "nohtml=1"));
 
@@ -469,6 +523,67 @@ shardcached_http_close_handler(struct mg_connection *conn)
     return 0;
 }
 
+static inline int
+shardcached_parse_request(const char *uri,
+                          const char *basepath,
+                          const char *adminpath,
+                          char **key,
+                          char **extra,
+                          int *is_admin)
+{
+    char *k = (char *)uri;
+
+    int basepath_len = strlen(basepath);
+    int baseadminpath_len = strlen(adminpath);
+    int basepaths_differ = (basepath_len != baseadminpath_len || strcmp(basepath, adminpath) != 0);
+    int is_adminpath = 0;
+
+    while (*k == '/' && *k)
+        k++;
+
+    if (basepath_len || baseadminpath_len) {
+        if (basepath_len && strncmp(k, basepath, basepath_len) == 0 &&
+            strlen(k) > basepath_len && k[basepath_len] == '/')
+        {
+            k += basepath_len + 1;
+            while (*k == '/' && *k)
+                k++;
+        }
+        else if (basepaths_differ && baseadminpath_len &&
+                 strncmp(k, adminpath, baseadminpath_len) == 0 &&
+                 strlen(k) > baseadminpath_len && k[baseadminpath_len] == '/')
+        {
+            is_adminpath = 1;
+            k += baseadminpath_len + 1;
+            while (*k == '/' && *k)
+                k++;
+        }
+        else
+        {
+            SHC_DEBUG("Out-of-scope uri : %s", uri);
+            return 0;
+        }
+    }
+
+    if (*k)
+    {
+        if (key)
+            *key = k;
+
+        char *e = NULL;
+        int is_admin_url = ((!baseadminpath_len || !basepaths_differ) && is_admin_command(k, &e));
+        if (is_admin)
+            *is_admin = is_admin_url;
+
+        if (extra)
+            *extra = e;
+
+        return 1;
+    } 
+
+    return 0;
+}
+
 static int
 shardcached_request_handler(struct mg_connection *conn, enum mg_event event)
 {
@@ -498,61 +613,29 @@ shardcached_request_handler(struct mg_connection *conn, enum mg_event event)
     if (event == MG_REQUEST) {
         http_worker_t *wrk = conn->server_param;
         
-        char *key = (char *)conn->uri;
+        char *key = NULL;
+        int is_admin = 0;
+        char *extra = NULL;
 
-        int basepath_len = strlen(wrk->basepath);
-        int baseadminpath_len = strlen(wrk->adminpath);
-        int basepaths_differ = (basepath_len != baseadminpath_len || strcmp(wrk->basepath, wrk->adminpath) != 0);
-        int is_adminpath = 0;
-
-        ATOMIC_INCREMENT(shcd_active_requests);
-
-        while (*key == '/' && *key)
-            key++;
-
-        if (basepath_len || baseadminpath_len) {
-            if (basepath_len && strncmp(key, wrk->basepath, basepath_len) == 0 &&
-                strlen(key) > basepath_len && key[basepath_len] == '/')
-            {
-                key += basepath_len + 1;
-                while (*key == '/' && *key)
-                    key++;
-            }
-            else if (basepaths_differ && baseadminpath_len &&
-                     strncmp(key, wrk->adminpath, baseadminpath_len) == 0 &&
-                     strlen(key) > baseadminpath_len && key[baseadminpath_len] == '/')
-            {
-                is_adminpath = 1;
-                key += baseadminpath_len + 1;
-                while (*key == '/' && *key)
-                    key++;
-            }
-            else
-            {
-                SHC_DEBUG("Out-of-scope uri : %s", conn->uri);
-                mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
-                ATOMIC_DECREMENT(shcd_active_requests);
-                return MG_TRUE;
-            }
-        }
-
-        if (*key == 0) {
-            mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length 9\r\n\r\nNot Found");
+        if (!shardcached_parse_request(conn->uri, wrk->basepath, wrk->adminpath, &key, &extra, &is_admin))
+        {
+            mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
             ATOMIC_DECREMENT(shcd_active_requests);
             return MG_TRUE;
         }
 
+        ATOMIC_INCREMENT(shcd_active_requests);
+
         // if baseadminpath is not defined or it's the same as basepath,
         // we need to check for the "special" admin keys and handle them differently
-        // (in such cases the labels __stats__, __index__ and __health__ become reserved
+        // (in such cases the labels HTTP_STATS_COMMAND, HTTP_INDEX_COMMAND and __health__ become reserved
         // and can't be used as keys from the http interface)
-        if (is_adminpath || ((!baseadminpath_len || !basepaths_differ) &&
-            (strcmp(key, "__stats__") == 0 || strcmp(key, "__index__") == 0 || strcmp(key, "__health__") == 0)))
+        if (is_admin)
         {
             if (strncasecmp(conn->request_method, "GET", 3) == 0)
-                shardcached_handle_admin_request(wrk, conn, key, 0);
+                shardcached_handle_admin_request(wrk, conn, key, extra, 0);
             else
-                mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length 9\r\n\r\nForbidden");
+                mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
             ATOMIC_DECREMENT(shcd_active_requests);
             return MG_TRUE;
 
