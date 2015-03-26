@@ -611,6 +611,7 @@ shardcached_request_handler(struct mg_connection *conn, enum mg_event event)
     }
 
     if (event == MG_REQUEST) {
+
         http_worker_t *wrk = conn->server_param;
         
         char *key = NULL;
@@ -655,7 +656,8 @@ shardcached_request_handler(struct mg_connection *conn, enum mg_event event)
 
 
         ATOMIC_DECREMENT(shcd_active_requests);
-    }
+    } else if (event == MG_RECV)
+        return 0;
 
     return MG_TRUE;
 }
