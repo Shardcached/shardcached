@@ -587,78 +587,87 @@ shardcached_parse_request(const char *uri,
 static int
 shardcached_request_handler(struct mg_connection *conn, enum mg_event event)
 {
-    if (event == MG_CLOSE && conn->connection_param)
-        return shardcached_http_close_handler(conn);
-
-    if (event == MG_POLL) {
-        connection_status *st = (connection_status *)conn->connection_param;
-        if (st) {
-            int status = st->req_status;
-            int len = fbuf_used(st->sbuf);
-            if (len) {
-                mg_write(conn, fbuf_data(st->sbuf), len);
-                fbuf_remove(st->sbuf, len);
-            }
-            if (status == MG_REQUEST_PROCESSED) {
-                conn->connection_param = NULL;
-                fbuf_free(st->sbuf);
-                pthread_mutex_destroy(&st->slock);
-                free(st);
-                return MG_TRUE;
-            }
-        }
-        return MG_MORE;
-    }
-
-    if (event == MG_REQUEST) {
-
-        http_worker_t *wrk = conn->server_param;
-        
-        char *key = NULL;
-        int is_admin = 0;
-        char *extra = NULL;
-
-        if (!shardcached_parse_request(conn->uri, wrk->basepath, wrk->adminpath, &key, &extra, &is_admin))
+    switch(event)
+    {
+        case MG_CLOSE:
+            if (conn->connection_param)
+                return shardcached_http_close_handler(conn);
+            break;
+        case MG_RECV:
+            // ignore MG_RECV events
+            // NOTE : mongoose API expects the number of consumed bytes
+            //        as return value from MG_RECV events
+            return 0;
+        case MG_POLL:
         {
-            mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
-            ATOMIC_DECREMENT(shcd_active_requests);
-            return MG_TRUE;
+            connection_status *st = (connection_status *)conn->connection_param;
+            if (st) {
+                int status = st->req_status;
+                int len = fbuf_used(st->sbuf);
+                if (len) {
+                    mg_write(conn, fbuf_data(st->sbuf), len);
+                    fbuf_remove(st->sbuf, len);
+                }
+                if (status == MG_REQUEST_PROCESSED) {
+                    conn->connection_param = NULL;
+                    fbuf_free(st->sbuf);
+                    pthread_mutex_destroy(&st->slock);
+                    free(st);
+                    return MG_TRUE;
+                }
+            }
+            return MG_MORE;
         }
-
-        ATOMIC_INCREMENT(shcd_active_requests);
-
-        // if baseadminpath is not defined or it's the same as basepath,
-        // we need to check for the "special" admin keys and handle them differently
-        // (in such cases the labels HTTP_STATS_COMMAND, HTTP_INDEX_COMMAND and __health__ become reserved
-        // and can't be used as keys from the http interface)
-        if (is_admin)
+        case MG_REQUEST:
         {
+            http_worker_t *wrk = conn->server_param;
+            
+            char *key = NULL;
+            int is_admin = 0;
+            char *extra = NULL;
+
+            if (!shardcached_parse_request(conn->uri, wrk->basepath, wrk->adminpath, &key, &extra, &is_admin))
+            {
+                mg_printf(conn, "HTTP/1.0 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
+                ATOMIC_DECREMENT(shcd_active_requests);
+                break;
+            }
+
+            ATOMIC_INCREMENT(shcd_active_requests);
+
+            // if baseadminpath is not defined or it's the same as basepath,
+            // we need to check for the "special" admin keys and handle them differently
+            // (in such cases the labels HTTP_STATS_COMMAND, HTTP_INDEX_COMMAND and __health__ become reserved
+            // and can't be used as keys from the http interface)
+            if (is_admin)
+            {
+                if (strncasecmp(conn->request_method, "GET", 3) == 0)
+                    shardcached_handle_admin_request(wrk, conn, key, extra, 0);
+                else
+                    mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
+                ATOMIC_DECREMENT(shcd_active_requests);
+                break;
+            }
+
+            // handle the actual GET/PUT/DELETE request
             if (strncasecmp(conn->request_method, "GET", 3) == 0)
-                shardcached_handle_admin_request(wrk, conn, key, extra, 0);
+                return shardcached_handle_get_request(wrk, conn, key, 0);
+            else if (strncasecmp(conn->request_method, "HEAD", 4) == 0)
+                return shardcached_handle_get_request(wrk, conn, key, 1);
+            else if (strncasecmp(conn->request_method, "DELETE", 6) == 0)
+                shardcached_handle_delete_request(wrk, conn, key);
+            else if (strncasecmp(conn->request_method, "PUT", 3) == 0)
+                shardcached_handle_put_request(wrk, conn, key);
             else
-                mg_printf(conn, "HTTP/1.0 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
+                mg_printf(conn, "HTTP/1.0 405 Method Not Allowed\r\nContent-Length: 11\r\n\r\nNot Allowed");
+
+
             ATOMIC_DECREMENT(shcd_active_requests);
-            return MG_TRUE;
-
+            break;
         }
-
-        // handle the actual GET/PUT/DELETE request
-        if (strncasecmp(conn->request_method, "GET", 3) == 0)
-            return shardcached_handle_get_request(wrk, conn, key, 0);
-        else if (strncasecmp(conn->request_method, "HEAD", 4) == 0)
-            return shardcached_handle_get_request(wrk, conn, key, 1);
-        else if (strncasecmp(conn->request_method, "DELETE", 6) == 0)
-            shardcached_handle_delete_request(wrk, conn, key);
-        else if (strncasecmp(conn->request_method, "PUT", 3) == 0)
-            shardcached_handle_put_request(wrk, conn, key);
-        else
-            mg_printf(conn, "HTTP/1.0 405 Method Not Allowed\r\nContent-Length: 11\r\n\r\nNot Allowed");
-
-
-        ATOMIC_DECREMENT(shcd_active_requests);
-    } else if (event == MG_RECV)
-        return 0;
-
+        default:
+            break;
+    }
     return MG_TRUE;
 }
 
