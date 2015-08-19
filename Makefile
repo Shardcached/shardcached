@@ -6,6 +6,7 @@ DEPS += deps/.libs/libshardcache.a \
         deps/.libs/libchash.a \
         deps/.libs/libsiphash.a
 
+CFLAGS += -DBUILD_INFO="$(BUILD_INFO)"
 LDFLAGS += -L.
 
 ifeq ($(UNAME), Linux)

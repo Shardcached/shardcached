@@ -35,6 +35,15 @@
 
 #define SHARDCACHED_VERSION "1.0"
 
+#ifndef BUILD_INFO
+#define BUILD_INFO
+#endif
+
+#define STRINGIFY(x)   #x
+#define X_STRINGIFY(x) STRINGIFY(x)
+
+const char *SHARDCACHED_BUILD_INFO = X_STRINGIFY(BUILD_INFO);
+
 #define SHARDCACHED_ADDRESS_DEFAULT "4321"
 #define SHARDCACHED_LOGLEVEL_DEFAULT 0
 #define SHARDCACHED_SECRET_DEFAULT ""
@@ -155,7 +164,7 @@ static void usage(char *progname, int rc, char *msg, ...)
     }
 
     printf("Usage: %s [OPTION]...\n"
-           "Version: %s (libshardcache: %s)\n"
+           "Version: %s (libshardcache: %s %s) %s\n"
            "Possible options:\n"
            "    -a <access_log_file>  the path where to store the access_log file (defaults to '%s')\n"
            "    -c <config_file>      the config file to load\n"
@@ -202,6 +211,8 @@ static void usage(char *progname, int rc, char *msg, ...)
            , progname
            , SHARDCACHED_VERSION
            , LIBSHARDCACHE_VERSION
+           , LIBSHARDCACHE_BUILD_INFO
+           , SHARDCACHED_BUILD_INFO
            , SHARDCACHED_ACCESS_LOG_DEFAULT
            , SHARDCACHED_PLUGINS_DIR_DEFAULT
            , SHARDCACHED_STATS_INTERVAL_DEFAULT
@@ -863,7 +874,11 @@ void parse_cmdline(int argc, char **argv)
                 usage(argv[0], 0, NULL);
                 break;
             case 'V':
-                printf("%s (libshardcache: %s)\n", SHARDCACHED_VERSION, LIBSHARDCACHE_VERSION);
+                printf("%s (libshardcache: %s %s) %s\n",
+                       SHARDCACHED_VERSION,
+                       LIBSHARDCACHE_VERSION,
+                       LIBSHARDCACHE_BUILD_INFO,
+                       SHARDCACHED_BUILD_INFO);
                 exit(0);
             default:
                 usage(argv[0], -3, "Unknown option : '-%c'", c);
