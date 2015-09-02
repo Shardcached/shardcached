@@ -956,7 +956,14 @@ int main(int argc, char **argv)
         }
         char pidstr[32];
         snprintf(pidstr, 32, "%d", pid);
-        fwrite(pidstr, 1, strlen(pidstr), pidfile);
+        if (!fwrite(pidstr, 1, strlen(pidstr), pidfile)) {
+            fprintf(stderr, "Can't write to the pidfile %s : %s\n",
+                    config.pidfile, strerror(errno));
+            free(config.pidfile);
+            config.pidfile = NULL;
+            rc = -1;
+            goto _exit;
+        }
         fclose(pidfile);
     }
     signal(SIGINT, shardcached_stop);
