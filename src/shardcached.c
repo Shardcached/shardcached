@@ -61,8 +61,8 @@ const char *SHARDCACHED_BUILD_INFO = X_STRINGIFY(BUILD_INFO);
 #define SHARDCACHED_USERAGENT_SIZE_THRESHOLD 16
 #define SHARDCACHED_MAX_SHARDS 1024
 
-static pthread_cond_t exit_cond = PTHREAD_COND_INITIALIZER;
-static pthread_mutex_t exit_lock = PTHREAD_MUTEX_INITIALIZER;
+#define MAX(a, b) ( (a) > (b) ? (a) : (b) )
+
 static int should_exit = 0;
 static int should_reset = 0;
 static shcd_acl_t *http_acl = NULL;
@@ -235,9 +235,6 @@ static void usage(char *progname, int rc, char *msg, ...)
 static void shardcached_stop(int sig)
 {
     (void)__sync_add_and_fetch(&should_exit, 1);
-    pthread_mutex_lock(&exit_lock);
-    pthread_cond_signal(&exit_cond);
-    pthread_mutex_unlock(&exit_lock);
 }
 
 static void shardcached_do_nothing(int sig)
@@ -258,24 +255,24 @@ static void shardcached_reset(int sig)
 
 static void shardcached_run(shardcache_t *cache, uint32_t stats_interval, shcd_storage_t *st)
 {
-    if (stats_interval) {
-        hashtable_t *prevcounters = ht_create(32, 256, free);
-        while (!__sync_fetch_and_add(&should_exit, 0)) {
-            int rc = 0;
-            struct timespec to_sleep = {
-                .tv_sec = stats_interval,
-                .tv_nsec = 0
-            };
-            struct timespec remainder = { 0, 0 };
+    hashtable_t *prevcounters = ht_create(32, 256, free);
+    while (!__sync_fetch_and_add(&should_exit, 0)) {
+        int rc = 0;
+        struct timespec to_sleep = {
+            .tv_sec = MAX(stats_interval, 1),
+            .tv_nsec = 0
+        };
+        struct timespec remainder = { 0, 0 };
 
-            do {
-                rc = nanosleep(&to_sleep, &remainder);
-                if (__sync_fetch_and_add(&should_exit, 0))
-                    break;
-                memcpy(&to_sleep, &remainder, sizeof(struct timespec));
-                memset(&remainder, 0, sizeof(struct timespec));
-            } while (rc != 0);
+        do {
+            rc = nanosleep(&to_sleep, &remainder);
+            if (__sync_fetch_and_add(&should_exit, 0))
+                break;
+            memcpy(&to_sleep, &remainder, sizeof(struct timespec));
+            memset(&remainder, 0, sizeof(struct timespec));
+        } while (rc != 0 && !!__sync_fetch_and_add(&should_exit, 0));
 
+        if (stats_interval) {
             shardcache_counter_t *counters;
             int ncounters = shardcache_get_counters(cache, &counters);
             int i;
@@ -306,15 +303,8 @@ static void shardcached_run(shardcache_t *cache, uint32_t stats_interval, shcd_s
             fbuf_destroy(&out);
             free(counters);
         }
-        ht_destroy(prevcounters);
-    } else {
-        while (!__sync_fetch_and_add(&should_exit, 0)) {
-            // and keep waiting until we are told to exit
-            pthread_mutex_lock(&exit_lock);
-            pthread_cond_wait(&exit_cond, &exit_lock);
-            pthread_mutex_unlock(&exit_lock);
-        }
     }
+    ht_destroy(prevcounters);
 }
 
 int config_acl(char *pattern, char *aclstr)
