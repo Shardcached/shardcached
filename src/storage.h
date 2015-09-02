@@ -1,5 +1,5 @@
-#ifndef __SHCD_STORAGE_H__
-#define __SHCD_STORAGE_H__
+#ifndef SHCD_STORAGE_H
+#define SHCD_STORAGE_H
 
 #include <shardcache.h>
 

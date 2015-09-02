@@ -1,11 +1,11 @@
-#ifndef __SHCD_HTTP_H__
-#define __SHCD_HTTP_H__
+#ifndef SHCD_HTTP_H
+#define SHCD_HTTP_H
 
 #include <shardcache.h>
 #include <hashtable.h>
 #include "acl.h"
 
-typedef struct __shcd_http_s shcd_http_t;
+typedef struct _shcd_http_s shcd_http_t;
 
 shcd_http_t *shcd_http_create(shardcache_t *cache,
                               const char *me,

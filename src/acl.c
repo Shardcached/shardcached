@@ -6,7 +6,7 @@
 #include <errno.h>
 #include <shardcache.h>
 
-struct __shcd_acl_item_s {
+struct _shcd_acl_item_s {
     regex_t exp;
     shcd_acl_action_t action;
     shcd_acl_method_t method;
@@ -15,7 +15,7 @@ struct __shcd_acl_item_s {
     pthread_mutex_t lock;
 };
 
-struct __shcd_acl_s {
+struct _shcd_acl_s {
     linked_list_t *list;
     shcd_acl_action_t default_action;
 };

@@ -26,13 +26,13 @@
 
 #define HTTP_HEADERS_WITH_TIME HTTP_HEADERS_BASE "Last-Modified: %s\r\n\r\n"
 
-#define ATOMIC_INCREMENT(__v) (void)__sync_add_and_fetch(&(__v), 1)
-#define ATOMIC_DECREMENT(__v) (void)__sync_sub_and_fetch(&(__v), 1)
+#define ATOMIC_INCREMENT(_v) (void)__sync_add_and_fetch(&(_v), 1)
+#define ATOMIC_DECREMENT(_v) (void)__sync_sub_and_fetch(&(_v), 1)
 
-#define ATOMIC_READ(__v) __sync_fetch_and_add(&(__v), 0)
+#define ATOMIC_READ(_v) __sync_fetch_and_add(&(_v), 0)
 
-typedef struct __http_worker_s {
-    TAILQ_ENTRY(__http_worker_s) next;
+typedef struct _http_worker_s {
+    TAILQ_ENTRY(_http_worker_s) next;
     pthread_t th;
     struct mg_server *server;
     const char *me;
@@ -44,12 +44,12 @@ typedef struct __http_worker_s {
     int leave;
 } http_worker_t;
 
-struct __shcd_http_s {
+struct _shcd_http_s {
     int num_workers;
-    TAILQ_HEAD(, __http_worker_s) workers; 
+    TAILQ_HEAD(, _http_worker_s) workers; 
 };
 
-typedef struct __http_job_s {
+typedef struct _http_job_s {
 
 } http_job_t;
 

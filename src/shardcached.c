@@ -931,7 +931,7 @@ int main(int argc, char **argv)
         rc = daemon(0, 0);
         if (rc != 0) {
             fprintf(stderr, "Can't go daemon: %s\n", strerror(errno));
-            goto __exit;
+            goto _exit;
         }
     }
 
@@ -942,7 +942,7 @@ int main(int argc, char **argv)
             free(config.pidfile);
             config.pidfile = NULL;
             rc = -1;
-            goto __exit;
+            goto _exit;
         }
         pid_t pid = getpid();
         FILE *pidfile = fopen(config.pidfile, "w");
@@ -952,7 +952,7 @@ int main(int argc, char **argv)
             free(config.pidfile);
             config.pidfile = NULL;
             rc = -1;
-            goto __exit;
+            goto _exit;
         }
         char pidstr[32];
         snprintf(pidstr, 32, "%d", pid);
@@ -973,7 +973,7 @@ int main(int argc, char **argv)
         if (!st) {
             SHC_ERROR("Can't initialize the storage subsystem");
             rc = -1;
-            goto __exit;
+            goto _exit;
         }
     }
 
@@ -990,7 +990,7 @@ int main(int argc, char **argv)
     if (!cache) {
         SHC_ERROR("Can't initialize the shardcache engine");
         rc = -1;
-        goto __exit;
+        goto _exit;
     }
 
     // set all the configurable libshardcache flags and options
@@ -1030,7 +1030,7 @@ int main(int argc, char **argv)
         if (!http_server) {
             SHC_ERROR("Can't start the http subsystem!");
             rc = -1;
-            goto __exit;
+            goto _exit;
         }
     }
 
@@ -1039,27 +1039,27 @@ int main(int argc, char **argv)
         if (config.username == 0 || *config.username == '\0') {
             fprintf(stderr, "can't run as root without the -u switch\n");
             rc = -99;
-            goto __exit;
+            goto _exit;
         }
         if ((pw = getpwnam(config.username)) == 0) {
             fprintf(stderr, "can't find the user %s to switch to\n",
                     config.username);
             rc = -99;
-            goto __exit;
+            goto _exit;
         }
 
         if (config.pidfile && (chown(config.pidfile, pw->pw_uid, pw->pw_gid) == -1)) {
             fprintf(stderr, "failed to chown pidfile %s\n",
                     config.pidfile);
             rc = -99;
-            goto __exit;
+            goto _exit;
         }
 
         if (setgid(pw->pw_gid) < 0 || setuid(pw->pw_uid) < 0) {
             fprintf(stderr, "failed to assume identity of user %s\n",
                     config.username);
             rc = -99;
-            goto __exit;
+            goto _exit;
         }
     }
 
@@ -1072,7 +1072,7 @@ int main(int argc, char **argv)
         SHC_ERROR("Can't start the http subsystem");
     }
 
-__exit:
+_exit:
     SHC_NOTICE("exiting");
 
     if (http_server)

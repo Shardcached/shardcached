@@ -1,5 +1,5 @@
-#ifndef __SHCD_ACL_H__
-#define __SHCD_ACL_H__
+#ifndef SHCD_ACL_H
+#define SHCD_ACL_H
 
 #include <stdint.h>
 
@@ -15,9 +15,9 @@ typedef enum {
     SHCD_ACL_METHOD_ANY = 0xff
 } shcd_acl_method_t;
 
-typedef struct __shcd_acl_item_s shcd_acl_item_t;
+typedef struct _shcd_acl_item_s shcd_acl_item_t;
 
-typedef struct __shcd_acl_s shcd_acl_t;
+typedef struct _shcd_acl_s shcd_acl_t;
 
 shcd_acl_t *shcd_acl_create(shcd_acl_action_t default_action);
 
