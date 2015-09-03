@@ -270,7 +270,7 @@ static void shardcached_run(shardcache_t *cache, uint32_t stats_interval, shcd_s
                 break;
             memcpy(&to_sleep, &remainder, sizeof(struct timespec));
             memset(&remainder, 0, sizeof(struct timespec));
-        } while (rc != 0 && !!__sync_fetch_and_add(&should_exit, 0));
+        } while (rc != 0 && !__sync_fetch_and_add(&should_exit, 0));
 
         if (stats_interval) {
             shardcache_counter_t *counters;
